@@ -3,6 +3,7 @@ from database import init_db
 from auth import show_login, logout, require_login
 from views.dashboard import show_dashboard
 from views.courses import show_courses
+from views.students import show_students
 
 init_db()
 
@@ -37,5 +38,4 @@ else:
         show_courses()
 
     elif page == "Students":
-        st.header("Students")
-        st.write("Student management coming next.")
+        show_students()

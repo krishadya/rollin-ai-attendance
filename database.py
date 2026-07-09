@@ -109,3 +109,61 @@ def delete_course(course_id):
 
     conn.commit()
     conn.close()
+
+def add_student(name, student_id, email):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO students (name, student_id, email) VALUES (?, ?, ?)",
+        (name, student_id, email)
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def enroll_student(student_db_id, course_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO enrollments (student_id, course_id) VALUES (?, ?)",
+        (student_db_id, course_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def get_students():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            students.id,
+            students.name,
+            students.student_id,
+            students.email,
+            courses.course_name,
+            courses.course_code
+        FROM students
+        LEFT JOIN enrollments ON students.id = enrollments.student_id
+        LEFT JOIN courses ON enrollments.course_id = courses.id
+    """)
+
+    students = cursor.fetchall()
+    conn.close()
+    return students
+
+
+def delete_student(student_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM enrollments WHERE student_id = ?", (student_id,))
+    cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+
+    conn.commit()
+    conn.close()
