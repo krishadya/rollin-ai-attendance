@@ -70,11 +70,31 @@ def show_students():
             students,
             columns=["ID", "Name", "Student ID", "Email", "Course", "Course Code"]
         )
+
+        display_df = df.drop(columns=["ID"])
+
         st.dataframe(
-    df,
-    use_container_width=True,
-    hide_index=True
-    )
+            display_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.subheader("Delete Student")
+
+        student_options = {
+            f"{student[1]} ({student[2]})": student[0]
+            for student in students
+        }
+
+        selected_student = st.selectbox(
+            "Select student to delete",
+            list(student_options.keys())
+        )
+
+        if st.button("Delete Student"):
+            delete_student(student_options[selected_student])
+            st.warning("Student deleted.")
+            st.rerun()
     else:
         st.info("No students added yet.")
 
