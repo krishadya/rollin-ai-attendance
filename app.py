@@ -4,6 +4,7 @@ from auth import show_login, logout, require_login
 from views.dashboard import show_dashboard
 from views.courses import show_courses
 from views.students import show_students
+from views.face_registration import show_face_registration
 
 init_db()
 
@@ -25,7 +26,7 @@ else:
         st.success(f"{user['name']} ({user['role']})")
         page = st.radio(
             "Navigation",
-            ["Dashboard", "Courses", "Students"]
+            ["Dashboard", "Courses", "Students", "Face Registration"]
         )
 
         if st.button("Logout"):
@@ -39,3 +40,6 @@ else:
 
     elif page == "Students":
         show_students()
+
+    elif page == "Face Registration":
+        show_face_registration()

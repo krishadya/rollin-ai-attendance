@@ -33,13 +33,14 @@ def init_db():
     """)
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            student_id TEXT UNIQUE NOT NULL,
-            email TEXT
-        )
-    """)
+    CREATE TABLE IF NOT EXISTS students (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        student_id TEXT UNIQUE NOT NULL,
+        email TEXT,
+        face_registered INTEGER DEFAULT 0
+    )
+""")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS enrollments (
@@ -141,13 +142,14 @@ def get_students():
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT
+    SELECT
             students.id,
             students.name,
             students.student_id,
             students.email,
             courses.course_name,
-            courses.course_code
+            courses.course_code,
+            students.face_registered
         FROM students
         LEFT JOIN enrollments ON students.id = enrollments.student_id
         LEFT JOIN courses ON enrollments.course_id = courses.id
@@ -167,3 +169,73 @@ def delete_student(student_id):
 
     conn.commit()
     conn.close()
+
+def get_total_courses():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM courses")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_total_students():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM students")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_today_attendance_count():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM attendance
+        WHERE date = date('now')
+    """)
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+def mark_face_registered(student_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "UPDATE students SET face_registered = 1 WHERE id = ?",
+        (student_id,)
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def get_student_by_student_id(student_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id, name, student_id, email FROM students WHERE student_id = ?",
+        (student_id,)
+    )
+
+    student = cursor.fetchone()
+    conn.close()
+    return student
+
+
+def enrollment_exists(student_db_id, course_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id FROM enrollments WHERE student_id = ? AND course_id = ?",
+        (student_db_id, course_id)
+    )
+
+    enrollment = cursor.fetchone()
+    conn.close()
+    return enrollment is not None

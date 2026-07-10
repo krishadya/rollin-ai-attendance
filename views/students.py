@@ -1,19 +1,19 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 
 from database import (
     add_student,
     enroll_student,
     get_students,
     get_courses,
-    delete_student
+    delete_student,
+    get_student_by_student_id,
+    enrollment_exists,
 )
 
 
 def show_students():
     st.header("👨‍🎓 Student Management")
-
     st.subheader("Add Student")
 
     courses = get_courses()
@@ -22,13 +22,15 @@ def show_students():
         st.warning("Please create a course before adding students.")
         return
 
+    if "student_form_key" not in st.session_state:
+        st.session_state.student_form_key = 0
+
     course_options = {
         f"{course[1]} ({course[2]})": course[0]
         for course in courses
     }
 
-    with st.form("add_student_form"):
-
+    with st.form(f"add_student_form_{st.session_state.student_form_key}"):
         name = st.text_input("Student Name")
         student_id = st.text_input("Student ID")
         email = st.text_input("Email")
@@ -42,24 +44,33 @@ def show_students():
 
         if submitted:
             if name and student_id and email:
-                try:
+                course_id = course_options[selected_course]
+                existing_student = get_student_by_student_id(student_id)
+
+                if existing_student:
+                    student_db_id = existing_student[0]
+
+                    if enrollment_exists(student_db_id, course_id):
+                        st.error("This student is already enrolled in this course.")
+                    else:
+                        enroll_student(student_db_id, course_id)
+                        st.success("Existing student enrolled in another course.")
+                        st.session_state.student_form_key += 1
+                        st.rerun()
+
+                else:
                     add_student(name, student_id, email)
 
                     students = get_students()
                     newest_student = max(students, key=lambda s: s[0])
 
-                    enroll_student(
-                        newest_student[0],
-                        course_options[selected_course]
-                    )
+                    enroll_student(newest_student[0], course_id)
 
-                    st.success("Student added successfully!")
+                    st.success("New student added and enrolled successfully!")
+                    st.session_state.student_form_key += 1
                     st.rerun()
-                except sqlite3.IntegrityError:
-                    st.error("A student with this Student ID already exists.")
             else:
                 st.error("Please complete all fields.")
-
 
     st.subheader("Student List")
 
@@ -68,15 +79,28 @@ def show_students():
     if students:
         df = pd.DataFrame(
             students,
-            columns=["ID", "Name", "Student ID", "Email", "Course", "Course Code"]
+            columns=[
+                "ID",
+                "Name",
+                "Student ID",
+                "Email",
+                "Course",
+                "Course Code",
+                "Face Registered",
+            ],
         )
+
+        df["Face Registered"] = df["Face Registered"].map({
+            1: "✅ Yes",
+            0: "❌ No",
+        })
 
         display_df = df.drop(columns=["ID"])
 
         st.dataframe(
             display_df,
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
         )
 
         st.subheader("Delete Student")
@@ -95,6 +119,7 @@ def show_students():
             delete_student(student_options[selected_student])
             st.warning("Student deleted.")
             st.rerun()
+
     else:
         st.info("No students added yet.")
 
