@@ -1,7 +1,7 @@
 import streamlit as st
-from database import get_students
+
 from database import get_students, mark_face_registered
-from face_utils import capture_face_image
+from face_utils import save_face_embedding
 
 
 def show_face_registration():
@@ -34,7 +34,15 @@ def show_face_registration():
         with open(image_path, "wb") as file:
             file.write(camera_image.getbuffer())
 
-        mark_face_registered(student_db_id)
+        embedding_path, error = save_face_embedding(student_id_text)
 
-        st.success("Face registered successfully!")
-        st.image(image_path, caption="Saved Face", width=300)
+        if error:
+            st.error(f"Face saved, but embedding failed: {error}")
+        else:
+            mark_face_registered(student_db_id)
+            st.success("Face registered and embedding saved successfully!")
+            st.image(image_path, caption="Saved Face", width=300)
+
+
+if __name__ == "__main__":
+    show_face_registration()
