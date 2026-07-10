@@ -239,3 +239,17 @@ def enrollment_exists(student_db_id, course_id):
     enrollment = cursor.fetchone()
     conn.close()
     return enrollment is not None
+
+def get_registered_faces_count():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM students
+        WHERE face_registered = 1
+    """)
+
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
