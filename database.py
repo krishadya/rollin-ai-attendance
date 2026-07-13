@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+from datetime import datetime
 
 DB_PATH = Path("data/database.db")
 
@@ -253,3 +254,86 @@ def get_registered_faces_count():
     count = cursor.fetchone()[0]
     conn.close()
     return count
+
+def get_student_by_db_id(student_db_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, name, student_id, email
+        FROM students
+        WHERE id = ?
+    """, (student_db_id,))
+
+    student = cursor.fetchone()
+    conn.close()
+    return student
+
+def is_student_enrolled(student_id_text, course_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT enrollments.id
+        FROM enrollments
+        JOIN students ON enrollments.student_id = students.id
+        WHERE students.student_id = ? AND enrollments.course_id = ?
+    """, (student_id_text, course_id))
+
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
+
+def attendance_exists(student_id_text, course_id, date):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT attendance.id
+        FROM attendance
+        JOIN students ON attendance.student_id = students.id
+        WHERE students.student_id = ?
+        AND attendance.course_id = ?
+        AND attendance.date = ?
+    """, (student_id_text, course_id, date))
+
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
+
+def mark_attendance(student_id_text, course_id):
+    today = datetime.now().strftime("%Y-%m-%d")
+    now = datetime.now().strftime("%H:%M:%S")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id FROM students WHERE student_id = ?",
+        (student_id_text,)
+    )
+
+    student = cursor.fetchone()
+
+    if student is None:
+        conn.close()
+        return False, "Student not found."
+
+    student_db_id = student[0]
+
+    if attendance_exists(student_id_text, course_id, today):
+        conn.close()
+        return False, "Attendance already marked for today."
+
+    cursor.execute("""
+        INSERT INTO attendance (student_id, course_id, date, status, marked_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (student_db_id, course_id, today, "Present", now))
+
+    conn.commit()
+    conn.close()
+
+    return True, "Attendance marked successfully."
+
