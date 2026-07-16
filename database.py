@@ -337,3 +337,83 @@ def mark_attendance(student_id_text, course_id):
 
     return True, "Attendance marked successfully."
 
+def get_attendance_records(course_id=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if course_id:
+        cursor.execute("""
+            SELECT
+                students.name,
+                students.student_id,
+                courses.course_name,
+                courses.course_code,
+                attendance.date,
+                attendance.marked_at,
+                attendance.status
+            FROM attendance
+            JOIN students ON attendance.student_id = students.id
+            JOIN courses ON attendance.course_id = courses.id
+            WHERE courses.id = ?
+            ORDER BY attendance.date DESC, attendance.marked_at DESC
+        """, (course_id,))
+    else:
+        cursor.execute("""
+            SELECT
+                students.name,
+                students.student_id,
+                courses.course_name,
+                courses.course_code,
+                attendance.date,
+                attendance.marked_at,
+                attendance.status
+            FROM attendance
+            JOIN students ON attendance.student_id = students.id
+            JOIN courses ON attendance.course_id = courses.id
+            ORDER BY attendance.date DESC, attendance.marked_at DESC
+        """)
+
+    records = cursor.fetchall()
+    conn.close()
+    return records
+
+def get_analytics_data(course_id=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if course_id:
+        cursor.execute("""
+            SELECT
+                students.name,
+                students.student_id,
+                courses.course_name,
+                COUNT(attendance.id) as present_count
+            FROM students
+            JOIN enrollments ON students.id = enrollments.student_id
+            JOIN courses ON enrollments.course_id = courses.id
+            LEFT JOIN attendance 
+                ON students.id = attendance.student_id
+                AND courses.id = attendance.course_id
+            WHERE courses.id = ?
+            GROUP BY students.id, courses.id
+        """, (course_id,))
+    else:
+        cursor.execute("""
+            SELECT
+                students.name,
+                students.student_id,
+                courses.course_name,
+                COUNT(attendance.id) as present_count
+            FROM students
+            JOIN enrollments ON students.id = enrollments.student_id
+            JOIN courses ON enrollments.course_id = courses.id
+            LEFT JOIN attendance 
+                ON students.id = attendance.student_id
+                AND courses.id = attendance.course_id
+            GROUP BY students.id, courses.id
+        """)
+
+    data = cursor.fetchall()
+    conn.close()
+    return data
+

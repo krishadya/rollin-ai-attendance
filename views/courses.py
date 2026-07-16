@@ -1,10 +1,14 @@
 import streamlit as st
 import pandas as pd
 from database import add_course, get_courses, delete_course
+from ui import page_header
 
 
 def show_courses():
-    st.header("Courses")
+    page_header(
+    "📚 Courses",
+    "Create and manage classroom courses."
+)
 
     st.subheader("Add New Course")
 

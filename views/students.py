@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from ui import page_header
 
 from database import (
     add_student,
@@ -13,7 +14,10 @@ from database import (
 
 
 def show_students():
-    st.header("👨‍🎓 Student Management")
+    page_header(
+    "👨‍🎓 Student Management",
+    "Add students, enroll them in courses, and track face registration."
+)
     st.subheader("Add Student")
 
     courses = get_courses()
@@ -31,9 +35,9 @@ def show_students():
     }
 
     with st.form(f"add_student_form_{st.session_state.student_form_key}"):
-        name = st.text_input("Student Name")
-        student_id = st.text_input("Student ID")
-        email = st.text_input("Email")
+        name = st.text_input("Student Name", placeholder="Tom Harrison")
+        student_id = st.text_input("Student ID", placeholder="987654321")
+        email = st.text_input("Email", placeholder="student@example.com")
 
         selected_course = st.selectbox(
             "Assign Course",

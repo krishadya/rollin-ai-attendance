@@ -7,45 +7,41 @@ from database import (
     get_today_attendance_count,
 )
 
+from ui import page_header, metric_card, section_card
+
 
 def show_dashboard():
+    page_header(
+        "🎓 RollIn Dashboard",
+        "AI-powered attendance management for modern classrooms."
+    )
 
-    st.header("🎓 RollIn Dashboard")
-
-    col1, col2 = st.columns(2)
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric(
-            label="👨‍🎓 Students",
-            value=get_total_students()
-        )
+        metric_card("👨‍🎓", "Students", get_total_students(), "Total enrolled")
 
     with col2:
-        st.metric(
-            label="📚 Courses",
-            value=get_total_courses()
-        )
-
-    col3, col4 = st.columns(2)
+        metric_card("📚", "Courses", get_total_courses(), "Active classes")
 
     with col3:
-        st.metric(
-            label="📷 Registered Faces",
-            value=get_registered_faces_count()
-        )
+        metric_card("📷", "Faces", get_registered_faces_count(), "Registered profiles")
 
     with col4:
-        st.metric(
-            label="✅ Attendance Today",
-            value=get_today_attendance_count()
+        metric_card("✅", "Today", get_today_attendance_count(), "Attendance marked")
+
+    st.markdown("### 📌 Recent Activity")
+
+    col5, col6 = st.columns(2)
+
+    with col5:
+        section_card(
+            "System Status",
+            "Face recognition and attendance scanning are active."
         )
 
-    st.divider()
-
-    st.subheader("📌 Recent Activity")
-
-    st.info("Activity feed coming soon.")
-
-    st.write("• Students can now enroll in multiple courses.")
-    st.write("• Face registration is enabled.")
-    st.write("• AI attendance recognition is the next milestone.")
+    with col6:
+        section_card(
+            "Next Steps",
+            "Use Take Attendance to start a live classroom scan."
+        )
