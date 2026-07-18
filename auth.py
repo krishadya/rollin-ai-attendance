@@ -1,5 +1,8 @@
 import streamlit as st
+
 from database import get_connection
+from security import hash_password, is_password_hash, verify_password
+from ui import section_heading, status_banner
 
 
 def login_user(email, password):
@@ -7,37 +10,51 @@ def login_user(email, password):
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT id, name, email, role FROM users WHERE email = ? AND password = ?",
-        (email, password),
+        "SELECT id, name, email, password, role FROM users WHERE email = ?",
+        (email.strip().lower(),),
     )
+    row = cursor.fetchone()
 
-    user = cursor.fetchone()
+    if row is None or not verify_password(password, row[3]):
+        conn.close()
+        return None
+
+    # Transparently upgrade legacy plaintext passwords after a successful login.
+    if not is_password_hash(row[3]):
+        cursor.execute(
+            "UPDATE users SET password = ? WHERE id = ?",
+            (hash_password(password), row[0]),
+        )
+        conn.commit()
+
     conn.close()
-    return user
+    return row[0], row[1], row[2], row[4]
 
 
 def show_login():
-    st.header("Login")
+    section_heading("Login", "Use the default admin account or your instructor credentials.")
 
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
+    with st.form("login_form"):
+        email = st.text_input("Email", placeholder="admin@rollin.com")
+        password = st.text_input("Password", type="password", placeholder="Enter password")
+        submitted = st.form_submit_button("Login", use_container_width=True)
 
-    if st.button("Login"):
-        user = login_user(email, password)
+        if submitted:
+            user = login_user(email, password)
 
-        if user:
-            st.session_state.user = {
-                "id": user[0],
-                "name": user[1],
-                "email": user[2],
-                "role": user[3],
-            }
-            st.success("Login successful!")
-            st.rerun()
-        else:
-            st.error("Invalid email or password.")
+            if user:
+                st.session_state.user = {
+                    "id": user[0],
+                    "name": user[1],
+                    "email": user[2],
+                    "role": user[3],
+                }
+                st.success("Login successful!")
+                st.rerun()
+            else:
+                st.error("Invalid email or password.")
 
-    st.info("Default admin: admin@rollin.com / admin123")
+    status_banner("Default admin", "admin@rollin.com / admin123", tone="accent")
 
 
 def logout():

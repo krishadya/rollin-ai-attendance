@@ -1,13 +1,13 @@
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
-from database import get_courses, get_analytics_data
-from ui import page_header
+from database import get_analytics_data, get_courses
+from ui import metric_card, page_header, section_heading, status_banner
 
 
 def show_analytics():
     page_header(
-        "📈 Analytics",
+        "Analytics",
         "Track attendance performance by student and course."
     )
 
@@ -17,10 +17,8 @@ def show_analytics():
     for course in courses:
         course_options[f"{course[1]} ({course[2]})"] = course[0]
 
-    selected_course = st.selectbox(
-        "Filter by Course",
-        list(course_options.keys())
-    )
+    section_heading("Course Filter", "Focus on a single class or review attendance across the full system.")
+    selected_course = st.selectbox("Filter by Course", list(course_options.keys()))
 
     data = get_analytics_data(course_options[selected_course])
 
@@ -30,27 +28,29 @@ def show_analytics():
 
     df = pd.DataFrame(
         data,
-        columns=["Name", "Student ID", "Course", "Present Count"]
+        columns=["Name", "Student ID", "Course", "Present Count"],
     )
-
-    st.subheader("Attendance Summary")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric("Students", df["Student ID"].nunique())
+        metric_card("Students", df["Student ID"].nunique(), "Unique students")
 
     with col2:
-        st.metric("Total Present Records", int(df["Present Count"].sum()))
+        metric_card("Present Records", int(df["Present Count"].sum()), "Total check-ins")
 
     with col3:
-        st.metric("Average Present Count", round(df["Present Count"].mean(), 2))
+        metric_card("Average", round(df["Present Count"].mean(), 2), "Per student/course")
 
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True
+    status_banner(
+        "Summary view",
+        "Use the export when you need a clean attendance snapshot for reports or downstream analysis.",
+        tone="accent",
     )
+    section_heading("Attendance Summary", "Per-student attendance totals for the selected scope.")
+    display_df = df.copy()
+    display_df["Present Count"] = display_df["Present Count"].astype(str)
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     csv = df.to_csv(index=False).encode("utf-8")
 
@@ -58,7 +58,8 @@ def show_analytics():
         label="Download Analytics CSV",
         data=csv,
         file_name="attendance_analytics.csv",
-        mime="text/csv"
+        mime="text/csv",
+        use_container_width=True,
     )
 
 

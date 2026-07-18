@@ -1,17 +1,37 @@
 import sqlite3
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+from security import hash_password, is_password_hash
+
 
 DB_PATH = Path("data/database.db")
+FACES_DIR = Path("data/faces")
+EMBEDDINGS_DIR = Path("data/embeddings")
 
 
 def get_connection():
-    return sqlite3.connect(DB_PATH, timeout=10)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    connection = sqlite3.connect(DB_PATH, timeout=10)
+    connection.execute("PRAGMA foreign_keys = ON")
+
+    return connection
+
+
+def normalize_course_code(course_code):
+    """Remove extra spaces and make course codes consistent."""
+    return " ".join(course_code.strip().upper().split())
+
+
+def normalize_course_name(course_name):
+    """Remove unnecessary spaces from course names."""
+    return " ".join(course_name.strip().split())
 
 
 def init_db():
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
+    cursor = connection.cursor()
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -34,20 +54,20 @@ def init_db():
     """)
 
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS students (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        student_id TEXT UNIQUE NOT NULL,
-        email TEXT,
-        face_registered INTEGER DEFAULT 0
-    )
-""")
+        CREATE TABLE IF NOT EXISTS students (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            student_id TEXT UNIQUE NOT NULL,
+            email TEXT,
+            face_registered INTEGER DEFAULT 0
+        )
+    """)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS enrollments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            course_id INTEGER,
+            student_id INTEGER NOT NULL,
+            course_id INTEGER NOT NULL,
             FOREIGN KEY (student_id) REFERENCES students(id),
             FOREIGN KEY (course_id) REFERENCES courses(id)
         )
@@ -56,8 +76,8 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            course_id INTEGER,
+            student_id INTEGER NOT NULL,
+            course_id INTEGER NOT NULL,
             date TEXT NOT NULL,
             status TEXT NOT NULL,
             marked_at TEXT,
@@ -66,283 +86,642 @@ def init_db():
         )
     """)
 
+    # Clean existing course names and codes.
+    existing_courses = cursor.execute(
+        "SELECT id, course_name, course_code FROM courses ORDER BY id"
+    ).fetchall()
+
+    for course_id, course_name, course_code in existing_courses:
+        cursor.execute(
+            """
+            UPDATE courses
+            SET course_name = ?, course_code = ?
+            WHERE id = ?
+            """,
+            (
+                normalize_course_name(course_name),
+                normalize_course_code(course_code),
+                course_id,
+            ),
+        )
+
+    # Merge duplicate courses that may already exist.
+    existing_courses = cursor.execute(
+        "SELECT id, course_code FROM courses ORDER BY id"
+    ).fetchall()
+
+    course_by_code = {}
+
+    for course_id, course_code in existing_courses:
+        normalized_code = normalize_course_code(course_code)
+
+        if normalized_code not in course_by_code:
+            course_by_code[normalized_code] = course_id
+            continue
+
+        original_course_id = course_by_code[normalized_code]
+        duplicate_course_id = course_id
+
+        # Move enrollments from the duplicate course to the original course.
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO enrollments (student_id, course_id)
+            SELECT student_id, ?
+            FROM enrollments
+            WHERE course_id = ?
+            """,
+            (original_course_id, duplicate_course_id),
+        )
+
+        # Move attendance from the duplicate course to the original course.
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO attendance (
+                student_id,
+                course_id,
+                date,
+                status,
+                marked_at
+            )
+            SELECT
+                student_id,
+                ?,
+                date,
+                status,
+                marked_at
+            FROM attendance
+            WHERE course_id = ?
+            """,
+            (original_course_id, duplicate_course_id),
+        )
+
+        cursor.execute(
+            "DELETE FROM attendance WHERE course_id = ?",
+            (duplicate_course_id,),
+        )
+        cursor.execute(
+            "DELETE FROM enrollments WHERE course_id = ?",
+            (duplicate_course_id,),
+        )
+        cursor.execute(
+            "DELETE FROM courses WHERE id = ?",
+            (duplicate_course_id,),
+        )
+
+    # Remove duplicate enrollments already stored in the database.
     cursor.execute("""
-        INSERT OR IGNORE INTO users (name, email, password, role)
-        VALUES ('Admin', 'admin@rollin.com', 'admin123', 'admin')
+        DELETE FROM enrollments
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM enrollments
+            GROUP BY student_id, course_id
+        )
     """)
 
-    conn.commit()
-    conn.close()
+    # Remove duplicate attendance records already stored in the database.
+    cursor.execute("""
+        DELETE FROM attendance
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM attendance
+            GROUP BY student_id, course_id, date
+        )
+    """)
+
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_course_code
+        ON courses(UPPER(TRIM(course_code)))
+    """)
+
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_enrollment
+        ON enrollments(student_id, course_id)
+    """)
+
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_daily_attendance
+        ON attendance(student_id, course_id, date)
+    """)
+
+    default_email = "admin@rollin.com"
+
+    cursor.execute(
+        "SELECT id, password FROM users WHERE email = ?",
+        (default_email,),
+    )
+
+    admin = cursor.fetchone()
+
+    if admin is None:
+        cursor.execute(
+            """
+            INSERT INTO users (name, email, password, role)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "Admin",
+                default_email,
+                hash_password("admin123"),
+                "admin",
+            ),
+        )
+    elif not is_password_hash(admin[1]):
+        cursor.execute(
+            "UPDATE users SET password = ? WHERE id = ?",
+            (
+                hash_password(admin[1]),
+                admin[0],
+            ),
+        )
+
+    connection.commit()
+    connection.close()
 
 
 def add_course(course_name, course_code, instructor_id):
-    conn = get_connection()
-    cursor = conn.cursor()
+    course_name = normalize_course_name(course_name)
+    course_code = normalize_course_code(course_code)
 
-    cursor.execute(
-        "INSERT INTO courses (course_name, course_code, instructor_id) VALUES (?, ?, ?)",
-        (course_name, course_code, instructor_id)
-    )
+    if not course_name or not course_code:
+        raise ValueError("Course name and course code are required.")
 
-    conn.commit()
-    conn.close()
+    connection = get_connection()
+
+    try:
+        existing_course = connection.execute(
+            """
+            SELECT id
+            FROM courses
+            WHERE UPPER(TRIM(course_code)) = UPPER(TRIM(?))
+            """,
+            (course_code,),
+        ).fetchone()
+
+        if existing_course:
+            raise ValueError(
+                f"A course with code {course_code} already exists."
+            )
+
+        connection.execute(
+            """
+            INSERT INTO courses (
+                course_name,
+                course_code,
+                instructor_id
+            )
+            VALUES (?, ?, ?)
+            """,
+            (
+                course_name,
+                course_code,
+                instructor_id,
+            ),
+        )
+
+        connection.commit()
+
+    except sqlite3.IntegrityError as error:
+        connection.rollback()
+
+        raise ValueError(
+            f"A course with code {course_code} already exists."
+        ) from error
+
+    finally:
+        connection.close()
 
 
 def get_courses():
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute("""
-        SELECT courses.id, courses.course_name, courses.course_code, users.name
+    rows = connection.execute("""
+        SELECT
+            courses.id,
+            courses.course_name,
+            courses.course_code,
+            users.name
         FROM courses
-        LEFT JOIN users ON courses.instructor_id = users.id
-    """)
+        LEFT JOIN users
+            ON courses.instructor_id = users.id
+        ORDER BY courses.course_name, courses.course_code
+    """).fetchall()
 
-    courses = cursor.fetchall()
-    conn.close()
-    return courses
+    connection.close()
+
+    return rows
 
 
 def delete_course(course_id):
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute("DELETE FROM courses WHERE id = ?", (course_id,))
+    try:
+        connection.execute("BEGIN")
 
-    conn.commit()
-    conn.close()
+        connection.execute(
+            "DELETE FROM attendance WHERE course_id = ?",
+            (course_id,),
+        )
+
+        connection.execute(
+            "DELETE FROM enrollments WHERE course_id = ?",
+            (course_id,),
+        )
+
+        connection.execute(
+            "DELETE FROM courses WHERE id = ?",
+            (course_id,),
+        )
+
+        connection.commit()
+
+    except Exception:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
+
 
 def add_student(name, student_id, email):
-    conn = get_connection()
-    cursor = conn.cursor()
+    name = " ".join(name.strip().split())
+    student_id = student_id.strip()
+    email = email.strip().lower()
 
-    cursor.execute(
-        "INSERT INTO students (name, student_id, email) VALUES (?, ?, ?)",
-        (name, student_id, email)
-    )
+    if not name or not student_id or not email:
+        raise ValueError("Name, student ID, and email are required.")
 
-    conn.commit()
-    conn.close()
+    connection = get_connection()
+
+    try:
+        connection.execute(
+            """
+            INSERT INTO students (name, student_id, email)
+            VALUES (?, ?, ?)
+            """,
+            (
+                name,
+                student_id,
+                email,
+            ),
+        )
+
+        connection.commit()
+
+    except sqlite3.IntegrityError as error:
+        connection.rollback()
+
+        raise ValueError(
+            f"A student with ID {student_id} already exists."
+        ) from error
+
+    finally:
+        connection.close()
 
 
 def enroll_student(student_db_id, course_id):
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute(
-        "INSERT INTO enrollments (student_id, course_id) VALUES (?, ?)",
-        (student_db_id, course_id)
-    )
+    try:
+        connection.execute(
+            """
+            INSERT INTO enrollments (student_id, course_id)
+            VALUES (?, ?)
+            """,
+            (
+                student_db_id,
+                course_id,
+            ),
+        )
 
-    conn.commit()
-    conn.close()
+        connection.commit()
+
+    except sqlite3.IntegrityError as error:
+        connection.rollback()
+
+        raise ValueError(
+            "This student is already enrolled in the selected course."
+        ) from error
+
+    finally:
+        connection.close()
 
 
 def get_students():
-    conn = get_connection()
-    cursor = conn.cursor()
+    """Return one row per student with their enrolled courses combined."""
+    connection = get_connection()
 
-    cursor.execute("""
-    SELECT
+    rows = connection.execute("""
+        SELECT
             students.id,
             students.name,
             students.student_id,
             students.email,
-            courses.course_name,
-            courses.course_code,
+            COALESCE(
+                GROUP_CONCAT(courses.course_name, ', '),
+                'Not enrolled'
+            ),
+            COALESCE(
+                GROUP_CONCAT(courses.course_code, ', '),
+                ''
+            ),
             students.face_registered
         FROM students
-        LEFT JOIN enrollments ON students.id = enrollments.student_id
-        LEFT JOIN courses ON enrollments.course_id = courses.id
-    """)
+        LEFT JOIN enrollments
+            ON students.id = enrollments.student_id
+        LEFT JOIN courses
+            ON enrollments.course_id = courses.id
+        GROUP BY
+            students.id,
+            students.name,
+            students.student_id,
+            students.email,
+            students.face_registered
+        ORDER BY students.name, students.student_id
+    """).fetchall()
 
-    students = cursor.fetchall()
-    conn.close()
-    return students
+    connection.close()
+
+    return rows
 
 
 def delete_student(student_id):
-    conn = get_connection()
-    cursor = conn.cursor()
+    student = get_student_by_db_id(student_id)
 
-    cursor.execute("DELETE FROM enrollments WHERE student_id = ?", (student_id,))
-    cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+    if student is None:
+        return
 
-    conn.commit()
-    conn.close()
+    student_identifier = student[2]
+    connection = get_connection()
+
+    try:
+        connection.execute("BEGIN")
+
+        connection.execute(
+            "DELETE FROM attendance WHERE student_id = ?",
+            (student_id,),
+        )
+
+        connection.execute(
+            "DELETE FROM enrollments WHERE student_id = ?",
+            (student_id,),
+        )
+
+        connection.execute(
+            "DELETE FROM students WHERE id = ?",
+            (student_id,),
+        )
+
+        connection.commit()
+
+    except Exception:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
+
+    files_to_remove = (
+        FACES_DIR / f"{student_identifier}.jpg",
+        EMBEDDINGS_DIR / f"{student_identifier}.npy",
+    )
+
+    for file_path in files_to_remove:
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
 
 def get_total_courses():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM courses")
-    count = cursor.fetchone()[0]
-    conn.close()
+    connection = get_connection()
+
+    count = connection.execute(
+        "SELECT COUNT(*) FROM courses"
+    ).fetchone()[0]
+
+    connection.close()
+
     return count
 
 
 def get_total_students():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM students")
-    count = cursor.fetchone()[0]
-    conn.close()
+    connection = get_connection()
+
+    count = connection.execute(
+        "SELECT COUNT(*) FROM students"
+    ).fetchone()[0]
+
+    connection.close()
+
     return count
 
 
 def get_today_attendance_count():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT COUNT(*)
-        FROM attendance
-        WHERE date = date('now')
-    """)
-    count = cursor.fetchone()[0]
-    conn.close()
+    connection = get_connection()
+
+    count = connection.execute(
+        "SELECT COUNT(*) FROM attendance WHERE date = ?",
+        (datetime.now().strftime("%Y-%m-%d"),),
+    ).fetchone()[0]
+
+    connection.close()
+
     return count
 
-def mark_face_registered(student_id):
-    conn = get_connection()
-    cursor = conn.cursor()
 
-    cursor.execute(
-        "UPDATE students SET face_registered = 1 WHERE id = ?",
-        (student_id,)
+def mark_face_registered(student_id):
+    connection = get_connection()
+
+    connection.execute(
+        """
+        UPDATE students
+        SET face_registered = 1
+        WHERE id = ?
+        """,
+        (student_id,),
     )
 
-    conn.commit()
-    conn.close()
+    connection.commit()
+    connection.close()
 
 
 def get_student_by_student_id(student_id):
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute(
-        "SELECT id, name, student_id, email FROM students WHERE student_id = ?",
-        (student_id,)
-    )
+    student = connection.execute(
+        """
+        SELECT id, name, student_id, email
+        FROM students
+        WHERE student_id = ?
+        """,
+        (student_id.strip(),),
+    ).fetchone()
 
-    student = cursor.fetchone()
-    conn.close()
+    connection.close()
+
+    return student
+
+
+def get_student_by_db_id(student_db_id):
+    connection = get_connection()
+
+    student = connection.execute(
+        """
+        SELECT id, name, student_id, email
+        FROM students
+        WHERE id = ?
+        """,
+        (student_db_id,),
+    ).fetchone()
+
+    connection.close()
+
     return student
 
 
 def enrollment_exists(student_db_id, course_id):
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute(
-        "SELECT id FROM enrollments WHERE student_id = ? AND course_id = ?",
-        (student_db_id, course_id)
-    )
+    row = connection.execute(
+        """
+        SELECT 1
+        FROM enrollments
+        WHERE student_id = ? AND course_id = ?
+        """,
+        (
+            student_db_id,
+            course_id,
+        ),
+    ).fetchone()
 
-    enrollment = cursor.fetchone()
-    conn.close()
-    return enrollment is not None
+    connection.close()
+
+    return row is not None
+
 
 def get_registered_faces_count():
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute("""
+    count = connection.execute(
+        """
         SELECT COUNT(*)
         FROM students
         WHERE face_registered = 1
-    """)
+        """
+    ).fetchone()[0]
 
-    count = cursor.fetchone()[0]
-    conn.close()
+    connection.close()
+
     return count
 
-def get_student_by_db_id(student_db_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id, name, student_id, email
-        FROM students
-        WHERE id = ?
-    """, (student_db_id,))
-
-    student = cursor.fetchone()
-    conn.close()
-    return student
 
 def is_student_enrolled(student_id_text, course_id):
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute("""
-        SELECT enrollments.id
+    row = connection.execute(
+        """
+        SELECT 1
         FROM enrollments
-        JOIN students ON enrollments.student_id = students.id
-        WHERE students.student_id = ? AND enrollments.course_id = ?
-    """, (student_id_text, course_id))
+        JOIN students
+            ON enrollments.student_id = students.id
+        WHERE students.student_id = ?
+          AND enrollments.course_id = ?
+        """,
+        (
+            student_id_text.strip(),
+            course_id,
+        ),
+    ).fetchone()
 
-    result = cursor.fetchone()
-    conn.close()
-    return result is not None
+    connection.close()
+
+    return row is not None
 
 
 def attendance_exists(student_id_text, course_id, date):
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute("""
-        SELECT attendance.id
+    row = connection.execute(
+        """
+        SELECT 1
         FROM attendance
-        JOIN students ON attendance.student_id = students.id
+        JOIN students
+            ON attendance.student_id = students.id
         WHERE students.student_id = ?
-        AND attendance.course_id = ?
-        AND attendance.date = ?
-    """, (student_id_text, course_id, date))
+          AND attendance.course_id = ?
+          AND attendance.date = ?
+        """,
+        (
+            student_id_text.strip(),
+            course_id,
+            date,
+        ),
+    ).fetchone()
 
-    result = cursor.fetchone()
-    conn.close()
-    return result is not None
+    connection.close()
+
+    return row is not None
 
 
 def mark_attendance(student_id_text, course_id):
     today = datetime.now().strftime("%Y-%m-%d")
-    now = datetime.now().strftime("%H:%M:%S")
+    current_time = datetime.now().strftime("%H:%M:%S")
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute(
-        "SELECT id FROM students WHERE student_id = ?",
-        (student_id_text,)
-    )
-
-    student = cursor.fetchone()
+    student = connection.execute(
+        """
+        SELECT id
+        FROM students
+        WHERE student_id = ?
+        """,
+        (student_id_text.strip(),),
+    ).fetchone()
 
     if student is None:
-        conn.close()
+        connection.close()
         return False, "Student not found."
 
-    student_db_id = student[0]
+    try:
+        connection.execute(
+            """
+            INSERT INTO attendance (
+                student_id,
+                course_id,
+                date,
+                status,
+                marked_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                student[0],
+                course_id,
+                today,
+                "Present",
+                current_time,
+            ),
+        )
 
-    if attendance_exists(student_id_text, course_id, today):
-        conn.close()
+        connection.commit()
+
+        return True, "Attendance marked successfully."
+
+    except sqlite3.IntegrityError:
+        connection.rollback()
+
         return False, "Attendance already marked for today."
 
-    cursor.execute("""
-        INSERT INTO attendance (student_id, course_id, date, status, marked_at)
-        VALUES (?, ?, ?, ?, ?)
-    """, (student_db_id, course_id, today, "Present", now))
+    finally:
+        connection.close()
 
-    conn.commit()
-    conn.close()
-
-    return True, "Attendance marked successfully."
 
 def get_attendance_records(course_id=None):
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
     if course_id:
-        cursor.execute("""
+        rows = connection.execute(
+            """
             SELECT
                 students.name,
                 students.student_id,
@@ -352,13 +731,20 @@ def get_attendance_records(course_id=None):
                 attendance.marked_at,
                 attendance.status
             FROM attendance
-            JOIN students ON attendance.student_id = students.id
-            JOIN courses ON attendance.course_id = courses.id
+            JOIN students
+                ON attendance.student_id = students.id
+            JOIN courses
+                ON attendance.course_id = courses.id
             WHERE courses.id = ?
-            ORDER BY attendance.date DESC, attendance.marked_at DESC
-        """, (course_id,))
+            ORDER BY
+                attendance.date DESC,
+                attendance.marked_at DESC
+            """,
+            (course_id,),
+        ).fetchall()
+
     else:
-        cursor.execute("""
+        rows = connection.execute("""
             SELECT
                 students.name,
                 students.student_id,
@@ -368,52 +754,115 @@ def get_attendance_records(course_id=None):
                 attendance.marked_at,
                 attendance.status
             FROM attendance
-            JOIN students ON attendance.student_id = students.id
-            JOIN courses ON attendance.course_id = courses.id
-            ORDER BY attendance.date DESC, attendance.marked_at DESC
-        """)
+            JOIN students
+                ON attendance.student_id = students.id
+            JOIN courses
+                ON attendance.course_id = courses.id
+            ORDER BY
+                attendance.date DESC,
+                attendance.marked_at DESC
+        """).fetchall()
 
-    records = cursor.fetchall()
-    conn.close()
-    return records
+    connection.close()
+
+    return rows
+
 
 def get_analytics_data(course_id=None):
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
     if course_id:
-        cursor.execute("""
+        rows = connection.execute(
+            """
             SELECT
                 students.name,
                 students.student_id,
                 courses.course_name,
-                COUNT(attendance.id) as present_count
+                COUNT(attendance.id) AS present_count
             FROM students
-            JOIN enrollments ON students.id = enrollments.student_id
-            JOIN courses ON enrollments.course_id = courses.id
-            LEFT JOIN attendance 
+            JOIN enrollments
+                ON students.id = enrollments.student_id
+            JOIN courses
+                ON enrollments.course_id = courses.id
+            LEFT JOIN attendance
                 ON students.id = attendance.student_id
                 AND courses.id = attendance.course_id
             WHERE courses.id = ?
             GROUP BY students.id, courses.id
-        """, (course_id,))
+            ORDER BY students.name
+            """,
+            (course_id,),
+        ).fetchall()
+
     else:
-        cursor.execute("""
+        rows = connection.execute("""
             SELECT
                 students.name,
                 students.student_id,
                 courses.course_name,
-                COUNT(attendance.id) as present_count
+                COUNT(attendance.id) AS present_count
             FROM students
-            JOIN enrollments ON students.id = enrollments.student_id
-            JOIN courses ON enrollments.course_id = courses.id
-            LEFT JOIN attendance 
+            JOIN enrollments
+                ON students.id = enrollments.student_id
+            JOIN courses
+                ON enrollments.course_id = courses.id
+            LEFT JOIN attendance
                 ON students.id = attendance.student_id
                 AND courses.id = attendance.course_id
             GROUP BY students.id, courses.id
-        """)
+            ORDER BY courses.course_name, students.name
+        """).fetchall()
 
-    data = cursor.fetchall()
-    conn.close()
-    return data
+    connection.close()
 
+    return rows
+
+def get_student_enrollments(student_db_id):
+    connection = get_connection()
+
+    rows = connection.execute(
+        """
+        SELECT
+            courses.id,
+            courses.course_name,
+            courses.course_code
+        FROM enrollments
+        JOIN courses
+            ON enrollments.course_id = courses.id
+        WHERE enrollments.student_id = ?
+        ORDER BY courses.course_name, courses.course_code
+        """,
+        (student_db_id,),
+    ).fetchall()
+
+    connection.close()
+
+    return rows
+
+
+def unenroll_student(student_db_id, course_id):
+    connection = get_connection()
+
+    try:
+        cursor = connection.execute(
+            """
+            DELETE FROM enrollments
+            WHERE student_id = ?
+              AND course_id = ?
+            """,
+            (
+                student_db_id,
+                course_id,
+            ),
+        )
+
+        connection.commit()
+
+        return cursor.rowcount > 0
+
+    except Exception:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()

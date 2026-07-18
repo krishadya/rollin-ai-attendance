@@ -1,98 +1,145 @@
+from pathlib import Path
+import base64
+
 import streamlit as st
 
+from auth import logout, require_login, show_login
 from database import init_db
-from auth import show_login, logout, require_login
-
-from views.dashboard import show_dashboard
-from views.courses import show_courses
-from views.students import show_students
-from views.face_registration import show_face_registration
-from views.attendance import show_attendance
-from views.history import show_history
 from views.analytics import show_analytics
+from views.attendance import show_attendance
+from views.courses import show_courses
+from views.dashboard import show_dashboard
+from views.face_registration import show_face_registration
+from views.history import show_history
+from views.students import show_students
+from ui import app_footer
+
+
+APP_NAME = "RollIn"
+APP_TAGLINE = "AI-Powered Classroom Attendance Platform"
+
+
+PAGES = {
+    "🏠 Dashboard": show_dashboard,
+    "📚 Courses": show_courses,
+    "🧑‍🎓 Students": show_students,
+    "🪪 Face Registration": show_face_registration,
+    "📷 Take Attendance": show_attendance,
+    "🕒 History": show_history,
+    "📊 Analytics": show_analytics,
+}
 
 
 def load_css():
-    with open("assets/styles.css") as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    css_path = Path("assets/styles.css")
+    if css_path.exists():
+        st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
 
 
-init_db()
+def get_logo_data_uri():
+    logo_path = Path("logo.png")
+    if not logo_path.exists():
+        return None
+    encoded = base64.b64encode(logo_path.read_bytes()).decode("utf-8")
+    return f"data:image/png;base64,{encoded}"
 
-st.set_page_config(
-    page_title="RollIn",
-    page_icon="🎓",
-    layout="wide"
-)
 
-load_css()
+def render_hero_brand():
+    """Big centered logo + brand used on the login screen."""
+    logo_data_uri = get_logo_data_uri()
+    logo_html = (
+        f'<img class="hero-logo" src="{logo_data_uri}" alt="RollIn logo" />'
+        if logo_data_uri
+        else '<div class="hero-logo-fallback">R</div>'
+    )
 
-if "page" not in st.session_state:
-    st.session_state.page = "Dashboard"
-
-if not require_login():
-    st.markdown("""
-    <div class="app-brand">
-        <h1>RollIn</h1>
-        <p>AI-Powered Classroom Attendance Platform</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    show_login()
-
-else:
-    st.markdown("""
-    <div class="top-nav-brand">
-        <div>
-            <h1>🎓 RollIn</h1>
-            <p>AI-Powered Classroom Attendance Platform</p>
+    st.markdown(
+        f"""
+        <div class="hero-brand">
+            {logo_html}
+            <div class="hero-subtitle">{APP_TAGLINE}</div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
 
-    st.markdown('<div class="nav-bar">', unsafe_allow_html=True)
 
-    nav_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 0.8])
+def render_topbar():
+    """Full-width, sticky navbar with logo, navigation, and account controls."""
+    page_names = list(PAGES.keys())
 
-    nav_items = [
-    ("Dashboard", "📊 Dashboard"),
-    ("Courses", "📚 Courses"),
-    ("Students", "👨‍🎓 Students"),
-    ("Face Registration", "📷 Faces"),
-    ("Take Attendance", "✅ Attendance"),
-    ("History", "📜 History"),
-    ("Analytics", "📈 Analytics"),
-    ]
+    if "page" not in st.session_state or st.session_state.page not in page_names:
+        st.session_state.page = page_names[0]
 
-    for col, (page_key, label) in zip(nav_cols[:7], nav_items):
-        with col:
-            if st.button(label, key=f"nav_{page_key}"):
-                st.session_state.page = page_key
+    current_index = page_names.index(st.session_state.page)
 
-    with nav_cols[7]:
-        if st.button("Logout", key="logout_btn"):
+    logo_data_uri = get_logo_data_uri()
+    logo_html = (
+        f'<img class="brand-logo" src="{logo_data_uri}" alt="RollIn logo" />'
+        if logo_data_uri
+        else '<div class="brand-logo-fallback">R</div>'
+    )
+
+    brand_col, nav_col, user_col = st.columns(
+        [2.1, 6.3, 1.9], vertical_alignment="center"
+    )
+
+    with brand_col:
+        st.markdown(
+            f'<div class="brand-left">{logo_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+    with nav_col:
+        selected_page = st.radio(
+            "Navigation",
+            page_names,
+            index=current_index,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="top_navigation",
+        )
+        st.session_state.page = selected_page
+
+    with user_col:
+        user_name = st.session_state.user["name"]
+        st.markdown(
+            f"""
+            <div class="nav-user-card">
+                <span class="nav-user-label">Signed in</span>
+                <strong>{user_name}</strong>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Logout", key="logout_button", use_container_width=True):
             logout()
 
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
 
-    if st.session_state.page == "Dashboard":
-        show_dashboard()
+def main():
+    init_db()
 
-    elif st.session_state.page == "Courses":
-        show_courses()
+    st.set_page_config(
+        page_title=APP_NAME,
+        page_icon="logo.png",
+        layout="wide",
+    )
 
-    elif st.session_state.page == "Students":
-        show_students()
+    load_css()
 
-    elif st.session_state.page == "Face Registration":
-        show_face_registration()
+    if not require_login():
+        st.markdown('<div class="login-shell">', unsafe_allow_html=True)
+        render_hero_brand()
+        show_login()
+        st.markdown("</div>", unsafe_allow_html=True)
+        app_footer(APP_NAME)
+        return
 
-    elif st.session_state.page == "Take Attendance":
-        show_attendance()
+    render_topbar()
+    st.markdown('<div class="page-spacer"></div>', unsafe_allow_html=True)
+    PAGES[st.session_state.page]()
+    app_footer(APP_NAME)
 
-    elif st.session_state.page == "Attendance History":
-        show_history()
 
-    elif st.session_state.page == "Analytics":
-        show_analytics()
+if __name__ == "__main__":
+    main()
