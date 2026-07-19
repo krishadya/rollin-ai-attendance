@@ -26,3 +26,4 @@ data/*.png
 .idea/
 .pytest_cache/
 .coverage
+
