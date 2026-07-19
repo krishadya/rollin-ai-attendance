@@ -102,3 +102,16 @@ def section_card(title, body):
         """,
         unsafe_allow_html=True,
     )
+
+
+def step_card(number, title, body):
+    st.markdown(
+        f"""
+        <div class="step-card">
+            <div class="step-badge">{html.escape(str(number))}</div>
+            <h4>{html.escape(str(title))}</h4>
+            <p>{html.escape(str(body))}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )

@@ -23,7 +23,7 @@ def show_analytics():
     data = get_analytics_data(course_options[selected_course])
 
     if not data:
-        st.info("No analytics data available yet.")
+        st.info("No analytics available yet. Attendance totals will appear here after students are marked present.")
         return
 
     df = pd.DataFrame(

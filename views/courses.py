@@ -44,7 +44,6 @@ def show_courses():
     if submitted:
         if not course_name.strip() or not course_code.strip():
             st.error("Please enter both a course name and course code.")
-
         else:
             try:
                 add_course(
@@ -52,17 +51,14 @@ def show_courses():
                     course_code,
                     st.session_state.user["id"],
                 )
-
                 st.success("Course added successfully.")
                 st.rerun()
-
             except ValueError as error:
                 st.error(str(error))
-
             except Exception:
-                st.error(
-                    "The course could not be added. Please try again."
-                )
+                st.error("The course could not be added. Please try again.")
+
+    st.divider()
 
     section_heading(
         "Course List",
@@ -72,17 +68,14 @@ def show_courses():
     courses = get_courses()
 
     if not courses:
-        st.info("No courses have been added yet.")
+        st.info(
+            "No courses yet. Create your first course above to begin enrolling students."
+        )
         return
 
     course_dataframe = pd.DataFrame(
         courses,
-        columns=[
-            "ID",
-            "Course Name",
-            "Course Code",
-            "Instructor",
-        ],
+        columns=["ID", "Course Name", "Course Code", "Instructor"],
     )
 
     st.dataframe(
@@ -91,12 +84,11 @@ def show_courses():
         hide_index=True,
     )
 
+    st.divider()
+
     section_heading(
         "Delete Course",
-        (
-            "Deleting a course also removes its enrollments and "
-            "attendance records."
-        ),
+        "Deleting a course also removes its enrollments and attendance records.",
     )
 
     course_options = {
@@ -110,12 +102,21 @@ def show_courses():
         key="delete_course_selection",
     )
 
+    st.warning(
+        "This action permanently removes the course, its enrollments, and its attendance records."
+    )
+
+    confirm_delete = st.checkbox(
+        "I understand that this action cannot be undone.",
+        key="confirm_course_delete",
+    )
+
     if st.button(
         "Delete Course",
         use_container_width=True,
         key="delete_course_button",
+        disabled=not confirm_delete,
     ):
         delete_course(course_options[selected_course])
-
         st.success("Course deleted successfully.")
         st.rerun()

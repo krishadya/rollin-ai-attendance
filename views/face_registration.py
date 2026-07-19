@@ -10,6 +10,63 @@ from face_utils import save_face_embedding
 from ui import hint_text, page_header, section_heading, status_banner
 
 
+@st.dialog("Capture Face Profile", width="large")
+def _run_capture_dialog(selected_student, student_options):
+    student_db_id, student_id_text = student_options[selected_student]
+    student_display_name = selected_student.split(" (")[0]
+
+    st.caption(f"Capturing a face profile for **{student_display_name}**.")
+
+    cap, camera_index = open_camera()
+
+    if cap is None:
+        st.error("Unable to access webcam.")
+        if st.button("Close", use_container_width=True, key="face_capture_close_error"):
+            st.rerun()
+        return
+
+    preview = st.empty()
+    status = st.empty()
+    status.info("Opening webcam and stabilizing image...")
+
+    frame = None
+    start_time = time.time()
+
+    while time.time() - start_time < 3:
+        ret, frame = cap.read()
+        if not ret:
+            continue
+
+        frame = cv2.resize(frame, (640, 480))
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        preview.image(rgb_frame, channels="RGB")
+
+    cap.release()
+
+    if frame is None:
+        status.error("Unable to capture image.")
+        if st.button("Close", use_container_width=True, key="face_capture_close_fail"):
+            st.rerun()
+        return
+
+    image_path = Path(f"data/faces/{student_id_text}.jpg")
+    cv2.imwrite(str(image_path), frame)
+
+    _, error = save_face_embedding(student_id_text)
+
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    preview.image(rgb_frame, channels="RGB", caption="Saved Face Profile")
+
+    if error:
+        status.error(f"Face image saved, but embedding generation failed: {error}")
+    else:
+        mark_face_registered(student_db_id)
+        status.success(f"Face profile registered successfully for {student_display_name}.")
+
+    if st.button("Done", use_container_width=True, key="face_capture_done"):
+        st.rerun()
+
+
 def show_face_registration():
     page_header(
         "Face Registration",
@@ -25,7 +82,7 @@ def show_face_registration():
     students = get_students()
 
     if not students:
-        st.warning("Please add students before registering faces.")
+        st.info("No students are available. Add a student before registering a face profile.")
         return
 
     student_options = {
@@ -42,50 +99,7 @@ def show_face_registration():
     )
 
     if st.button("Capture Face", use_container_width=True):
-        cap, camera_index = open_camera()
-
-        if cap is None:
-            st.error("Unable to access webcam.")
-            return
-
-        preview = st.empty()
-        status = st.empty()
-        status.info("Opening webcam and stabilizing image...")
-
-        frame = None
-        start_time = time.time()
-
-        while time.time() - start_time < 3:
-            ret, frame = cap.read()
-            if not ret:
-                continue
-
-            frame = cv2.resize(frame, (640, 480))
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            preview.image(rgb_frame, channels="RGB")
-
-        cap.release()
-
-        if frame is None:
-            st.error("Unable to capture image.")
-            return
-
-        student_db_id, student_id_text = student_options[selected_student]
-
-        image_path = Path(f"data/faces/{student_id_text}.jpg")
-        cv2.imwrite(str(image_path), frame)
-
-        _, error = save_face_embedding(student_id_text)
-
-        if error:
-            st.error(f"Face image saved, but embedding generation failed: {error}")
-            return
-
-        mark_face_registered(student_db_id)
-        status.success("Face profile registered successfully.")
-
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        st.image(rgb_frame, caption="Saved Face Profile", width=360)
+        _run_capture_dialog(selected_student, student_options)
 
 
 if __name__ == "__main__":

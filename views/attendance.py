@@ -14,56 +14,20 @@ from database import (
 )
 from face_utils import recognize_face
 from ui import hint_text, metric_card, page_header, section_heading, status_banner
-  
 
-def show_attendance():
-    page_header(
-        "Take Attendance",
-        "Start a live classroom scan and automatically record attendance."
-    )
 
-    now = datetime.now()
-    status_banner(
-        "Live session",
-        f"Session Date: {now.strftime('%B %d, %Y')} | "
-        f"Current Time: {now.strftime('%I:%M %p')}",
-        tone="info",
-    )
-
-    courses = get_courses()
-
-    if not courses:
-        st.warning("Please create a course first.")
-        return
-
-    course_options = {
-        f"{course[1]} ({course[2]})": course[0]
-        for course in courses
-    }
-
-    section_heading("Course Selection", "Choose the active class before starting the scan.")
-    selected_course = st.selectbox("Select Course", list(course_options.keys()))
-    course_id = course_options[selected_course]
-
-    hint_text(
-        "The default session scans for 15 seconds and checks for recognizable faces every 3 seconds.",
-        label="Scan settings",
-    )
-
-    if not st.button("Start Attendance", use_container_width=True):
-        return
-
-    scan_seconds = 15
-
+@st.dialog("Live Attendance Scan", width="large")
+def _run_attendance_dialog(course_id, scan_seconds=15):
     cap, camera_index = open_camera()
 
     if cap is None:
         st.error("Unable to access webcam.")
+        if st.button("Close", use_container_width=True, key="attendance_close_error"):
+            st.rerun()
         return
 
     frame_placeholder = st.empty()
     status_placeholder = st.empty()
-    summary_placeholder = st.empty()
 
     marked_students = []
     already_marked_students = []
@@ -139,44 +103,84 @@ def show_attendance():
             status_placeholder.warning(f"{name}: {message}")
 
     cap.release()
+    frame_placeholder.empty()
+    status_placeholder.success("Attendance session completed.")
 
-    st.success("Attendance session completed.")
+    section_heading("Session Summary", "Review what happened in this scan.")
 
-    with summary_placeholder.container():
-        section_heading("Session Summary", "Review what happened in this scan before starting another session.")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        metric_card("Marked Present", len(marked_students), "New attendance records")
+    with col2:
+        metric_card("Already Marked", len(already_marked_students), "Previously recorded today")
+    with col3:
+        metric_card("Not Enrolled", len(not_enrolled_students), "Recognized outside this class")
+    with col4:
+        metric_card("Unknown", unknown_count, "Unmatched detections")
 
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            metric_card("Marked Present", len(marked_students), "New attendance records")
-        with col2:
-            metric_card("Already Marked", len(already_marked_students), "Previously recorded today")
-        with col3:
-            metric_card("Not Enrolled", len(not_enrolled_students), "Recognized outside this class")
-        with col4:
-            metric_card("Unknown", unknown_count, "Unmatched detections")
+    list_col1, list_col2, list_col3 = st.columns(3)
+    with list_col1:
+        st.markdown("**Marked Students**")
+        if marked_students:
+            for student in marked_students:
+                st.write(f"- {student}")
+        else:
+            st.caption("No new students were marked present.")
+    with list_col2:
+        st.markdown("**Already Marked**")
+        if already_marked_students:
+            for student in already_marked_students:
+                st.write(f"- {student}")
+        else:
+            st.caption("No duplicate attendance attempts.")
+    with list_col3:
+        st.markdown("**Not Enrolled**")
+        if not_enrolled_students:
+            for student in not_enrolled_students:
+                st.write(f"- {student}")
+        else:
+            st.caption("No recognized students were outside the selected course.")
 
-        list_col1, list_col2, list_col3 = st.columns(3)
-        with list_col1:
-            section_heading("Marked Students", "Students successfully recorded during this scan.")
-            if marked_students:
-                for student in marked_students:
-                    st.write(f"- {student}")
-            else:
-                st.caption("No new students were marked present.")
-        with list_col2:
-            section_heading("Already Marked", "Students who already had attendance for today.")
-            if already_marked_students:
-                for student in already_marked_students:
-                    st.write(f"- {student}")
-            else:
-                st.caption("No duplicate attendance attempts.")
-        with list_col3:
-            section_heading("Not Enrolled", "Recognized students outside the selected course.")
-            if not_enrolled_students:
-                for student in not_enrolled_students:
-                    st.write(f"- {student}")
-            else:
-                st.caption("No recognized students were outside the selected course.")
+    if st.button("Close", use_container_width=True, key="attendance_close_done"):
+        st.rerun()
+
+
+def show_attendance():
+    page_header(
+        "Take Attendance",
+        "Start a live classroom scan and automatically record attendance."
+    )
+
+    now = datetime.now()
+    status_banner(
+        "Live session",
+        f"Session Date: {now.strftime('%B %d, %Y')} | "
+        f"Current Time: {now.strftime('%I:%M %p')}",
+        tone="info",
+    )
+
+    courses = get_courses()
+
+    if not courses:
+        st.info("No courses are available. Create a course and enroll students before starting attendance.")
+        return
+
+    course_options = {
+        f"{course[1]} ({course[2]})": course[0]
+        for course in courses
+    }
+
+    section_heading("Course Selection", "Choose the active class before starting the scan.")
+    selected_course = st.selectbox("Select Course", list(course_options.keys()))
+    course_id = course_options[selected_course]
+
+    hint_text(
+        "The default session scans for 15 seconds and checks for recognizable faces every 3 seconds.",
+        label="Scan settings",
+    )
+
+    if st.button("Start Attendance", use_container_width=True):
+        _run_attendance_dialog(course_id)
 
 
 if __name__ == "__main__":

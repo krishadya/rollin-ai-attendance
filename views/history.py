@@ -28,7 +28,7 @@ def show_history():
     records = get_attendance_records(course_options[selected_course])
 
     if not records:
-        st.info("No attendance records found.")
+        st.info("No attendance records found. Start an attendance session to generate the first classroom record.")
         return
 
     df = pd.DataFrame(

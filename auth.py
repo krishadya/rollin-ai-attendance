@@ -2,7 +2,7 @@ import streamlit as st
 
 from database import get_connection
 from security import hash_password, is_password_hash, verify_password
-from ui import section_heading, status_banner
+from ui import section_heading
 
 
 def login_user(email, password):
@@ -13,6 +13,7 @@ def login_user(email, password):
         "SELECT id, name, email, password, role FROM users WHERE email = ?",
         (email.strip().lower(),),
     )
+
     row = cursor.fetchone()
 
     if row is None or not verify_password(password, row[3]):
@@ -25,19 +26,36 @@ def login_user(email, password):
             "UPDATE users SET password = ? WHERE id = ?",
             (hash_password(password), row[0]),
         )
+
         conn.commit()
 
     conn.close()
+
     return row[0], row[1], row[2], row[4]
 
 
 def show_login():
-    section_heading("Login", "Use the default admin account or your instructor credentials.")
+    section_heading(
+        "Login",
+        "Sign in to manage courses, students, and attendance.",
+    )
 
     with st.form("login_form"):
-        email = st.text_input("Email", placeholder="admin@rollin.com")
-        password = st.text_input("Password", type="password", placeholder="Enter password")
-        submitted = st.form_submit_button("Login", use_container_width=True)
+        email = st.text_input(
+            "Email",
+            placeholder="Enter email address",
+        )
+
+        password = st.text_input(
+            "Password",
+            type="password",
+            placeholder="Enter password",
+        )
+
+        submitted = st.form_submit_button(
+            "Login",
+            use_container_width=True,
+        )
 
         if submitted:
             user = login_user(email, password)
@@ -49,12 +67,14 @@ def show_login():
                     "email": user[2],
                     "role": user[3],
                 }
-                st.success("Login successful!")
+
+                st.success("Login successful.")
                 st.rerun()
+
             else:
                 st.error("Invalid email or password.")
 
-    status_banner("Default admin", "admin@rollin.com / admin123", tone="accent")
+    st.caption("Use your instructor credentials to continue.")
 
 
 def logout():

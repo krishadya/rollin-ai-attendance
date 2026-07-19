@@ -2,6 +2,8 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+from streamlit import cursor
+
 from security import hash_password, is_password_hash
 
 
@@ -28,6 +30,61 @@ def normalize_course_name(course_name):
     """Remove unnecessary spaces from course names."""
     return " ".join(course_name.strip().split())
 
+
+def ensure_default_user(
+    cursor,
+    name: str,
+    email: str,
+    password: str,
+    role: str = "instructor",
+):
+    """
+    Create a default user if the email does not already exist.
+
+    Existing plaintext passwords are migrated to secure hashes.
+    """
+    cursor.execute(
+        """
+        SELECT id, password
+        FROM users
+        WHERE email = ?
+        """,
+        (email.strip().lower(),),
+    )
+
+    existing_user = cursor.fetchone()
+
+    if existing_user is None:
+        cursor.execute(
+            """
+            INSERT INTO users (
+                name,
+                email,
+                password,
+                role
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                name.strip(),
+                email.strip().lower(),
+                hash_password(password),
+                role,
+            ),
+        )
+
+    elif not is_password_hash(existing_user[1]):
+        cursor.execute(
+            """
+            UPDATE users
+            SET password = ?
+            WHERE id = ?
+            """,
+            (
+                hash_password(existing_user[1]),
+                existing_user[0],
+            ),
+        )
 
 def init_db():
     connection = get_connection()
@@ -203,36 +260,21 @@ def init_db():
         ON attendance(student_id, course_id, date)
     """)
 
-    default_email = "admin@rollin.com"
+    ensure_default_user(
+    cursor=cursor,
+    name="Admin",
+    email="admin@rollin.com",
+    password="admin123",
+    role="admin",
+)
 
-    cursor.execute(
-        "SELECT id, password FROM users WHERE email = ?",
-        (default_email,),
-    )
-
-    admin = cursor.fetchone()
-
-    if admin is None:
-        cursor.execute(
-            """
-            INSERT INTO users (name, email, password, role)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                "Admin",
-                default_email,
-                hash_password("admin123"),
-                "admin",
-            ),
-        )
-    elif not is_password_hash(admin[1]):
-        cursor.execute(
-            "UPDATE users SET password = ? WHERE id = ?",
-            (
-                hash_password(admin[1]),
-                admin[0],
-            ),
-        )
+    ensure_default_user(
+    cursor=cursor,
+    name="Krish Adya",
+    email="krish@rollin.com",
+    password="krish473",
+    role="instructor",
+)
 
     connection.commit()
     connection.close()
