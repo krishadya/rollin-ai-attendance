@@ -2,10 +2,18 @@ import pandas as pd
 import streamlit as st
 
 from database import add_course, delete_course, get_courses
-from ui import page_header, queue_widget_reset, section_heading, set_flash_success, status_banner
+from ui import (
+    page_header,
+    queue_widget_reset,
+    section_heading,
+    set_flash_success,
+    status_banner,
+)
 
 
 def show_courses():
+    user = st.session_state.user
+
     page_header(
         "Courses",
         "Create and manage the courses that use RollIn attendance.",
@@ -14,8 +22,8 @@ def show_courses():
     status_banner(
         "Course setup",
         (
-            "Use clear course names and unique course codes so attendance "
-            "and reporting remain organized."
+            "Administrators can manage every course. Instructors can manage "
+            "only the courses they create."
         ),
         tone="info",
     )
@@ -30,12 +38,10 @@ def show_courses():
             "Course Name",
             placeholder="Software Engineering",
         )
-
         course_code = st.text_input(
             "Course Code",
             placeholder="CSC 648",
         )
-
         submitted = st.form_submit_button(
             "Add Course",
             use_container_width=True,
@@ -46,11 +52,7 @@ def show_courses():
             st.error("Please enter both a course name and course code.")
         else:
             try:
-                add_course(
-                    course_name,
-                    course_code,
-                    st.session_state.user["id"],
-                )
+                add_course(course_name, course_code, user["id"])
                 set_flash_success("Course added successfully.")
                 st.rerun()
             except ValueError as error:
@@ -62,10 +64,14 @@ def show_courses():
 
     section_heading(
         "Course List",
-        "Current courses available in the RollIn workspace.",
+        (
+            "All courses in the system."
+            if user["role"] == "admin"
+            else "Courses created by you."
+        ),
     )
 
-    courses = get_courses()
+    courses = get_courses(user_id=user["id"], role=user["role"])
 
     if not courses:
         st.info(
@@ -107,7 +113,6 @@ def show_courses():
     st.warning(
         "This action permanently removes the course, its enrollments, and its attendance records."
     )
-
     confirm_delete = st.checkbox(
         "I understand that this action cannot be undone.",
         key="confirm_course_delete",
@@ -123,7 +128,16 @@ def show_courses():
             st.error("Please select a course.")
             return
 
-        delete_course(course_options[selected_course])
-        queue_widget_reset("delete_course_selection")
-        set_flash_success("Course deleted successfully.")
-        st.rerun()
+        try:
+            delete_course(
+                course_id=course_options[selected_course],
+                user_id=user["id"],
+                role=user["role"],
+            )
+            queue_widget_reset("delete_course_selection")
+            set_flash_success("Course deleted successfully.")
+            st.rerun()
+        except PermissionError as error:
+            st.error(str(error))
+        except Exception:
+            st.error("The course could not be deleted. Please try again.")

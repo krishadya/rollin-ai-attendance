@@ -19,6 +19,54 @@ def get_connection():
     return connection
 
 
+def is_admin(role: str) -> bool:
+    """Return True when the current user has administrator access."""
+    return role.strip().lower() == "admin"
+
+
+def can_access_course(course_id: int, user_id: int, role: str) -> bool:
+    """Check whether a user may view or manage a course."""
+    if is_admin(role):
+        return True
+
+    connection = get_connection()
+    try:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM courses
+            WHERE id = ? AND instructor_id = ?
+            """,
+            (course_id, user_id),
+        ).fetchone()
+        return row is not None
+    finally:
+        connection.close()
+
+
+def can_access_student(student_db_id: int, user_id: int, role: str) -> bool:
+    """Admins access every student; instructors access students in their courses."""
+    if is_admin(role):
+        return True
+
+    connection = get_connection()
+    try:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM enrollments
+            JOIN courses ON enrollments.course_id = courses.id
+            WHERE enrollments.student_id = ?
+              AND courses.instructor_id = ?
+            LIMIT 1
+            """,
+            (student_db_id, user_id),
+        ).fetchone()
+        return row is not None
+    finally:
+        connection.close()
+
+
 def normalize_course_code(course_code):
     """Remove extra spaces and make course codes consistent."""
     return " ".join(course_code.strip().upper().split())
@@ -334,53 +382,68 @@ def add_course(course_name, course_code, instructor_id):
         connection.close()
 
 
-def get_courses():
+def get_courses(user_id: int, role: str):
+    """Return all courses for admins and only owned courses for instructors."""
     connection = get_connection()
 
-    rows = connection.execute("""
-        SELECT
-            courses.id,
-            courses.course_name,
-            courses.course_code,
-            users.name
-        FROM courses
-        LEFT JOIN users
-            ON courses.instructor_id = users.id
-        ORDER BY courses.course_name, courses.course_code
-    """).fetchall()
+    try:
+        if is_admin(role):
+            return connection.execute(
+                """
+                SELECT
+                    courses.id,
+                    courses.course_name,
+                    courses.course_code,
+                    users.name
+                FROM courses
+                LEFT JOIN users ON courses.instructor_id = users.id
+                ORDER BY courses.course_name, courses.course_code
+                """
+            ).fetchall()
 
-    connection.close()
+        return connection.execute(
+            """
+            SELECT
+                courses.id,
+                courses.course_name,
+                courses.course_code,
+                users.name
+            FROM courses
+            LEFT JOIN users ON courses.instructor_id = users.id
+            WHERE courses.instructor_id = ?
+            ORDER BY courses.course_name, courses.course_code
+            """,
+            (user_id,),
+        ).fetchall()
+    finally:
+        connection.close()
 
-    return rows
 
+def delete_course(course_id: int, user_id: int, role: str):
+    """Delete a course after verifying ownership or administrator access."""
+    if not can_access_course(course_id, user_id, role):
+        raise PermissionError("You do not have permission to delete this course.")
 
-def delete_course(course_id):
     connection = get_connection()
 
     try:
         connection.execute("BEGIN")
-
         connection.execute(
             "DELETE FROM attendance WHERE course_id = ?",
             (course_id,),
         )
-
         connection.execute(
             "DELETE FROM enrollments WHERE course_id = ?",
             (course_id,),
         )
-
         connection.execute(
             "DELETE FROM courses WHERE id = ?",
             (course_id,),
         )
-
         connection.commit()
-
     except Exception:
         connection.rollback()
         raise
-
     finally:
         connection.close()
 
@@ -421,7 +484,16 @@ def add_student(name, student_id, email):
         connection.close()
 
 
-def enroll_student(student_db_id, course_id):
+def enroll_student(
+    student_db_id: int,
+    course_id: int,
+    user_id: int,
+    role: str,
+):
+    """Enroll a student only when the user may manage the selected course."""
+    if not can_access_course(course_id, user_id, role):
+        raise PermissionError("You cannot enroll students in this course.")
+
     connection = get_connection()
 
     try:
@@ -430,66 +502,96 @@ def enroll_student(student_db_id, course_id):
             INSERT INTO enrollments (student_id, course_id)
             VALUES (?, ?)
             """,
-            (
-                student_db_id,
-                course_id,
-            ),
+            (student_db_id, course_id),
         )
-
         connection.commit()
-
     except sqlite3.IntegrityError as error:
         connection.rollback()
-
         raise ValueError(
             "This student is already enrolled in the selected course."
         ) from error
-
     finally:
         connection.close()
 
 
-def get_students():
-    """Return one row per student with their enrolled courses combined."""
+def get_students(user_id: int, role: str):
+    """Return all students for admins and owned-course students for instructors."""
     connection = get_connection()
 
-    rows = connection.execute("""
-        SELECT
-            students.id,
-            students.name,
-            students.student_id,
-            students.email,
-            COALESCE(
-                GROUP_CONCAT(courses.course_name, ', '),
-                'Not enrolled'
-            ),
-            COALESCE(
-                GROUP_CONCAT(courses.course_code, ', '),
-                ''
-            ),
-            students.face_registered
-        FROM students
-        LEFT JOIN enrollments
-            ON students.id = enrollments.student_id
-        LEFT JOIN courses
-            ON enrollments.course_id = courses.id
-        GROUP BY
-            students.id,
-            students.name,
-            students.student_id,
-            students.email,
-            students.face_registered
-        ORDER BY students.name, students.student_id
-    """).fetchall()
+    try:
+        if is_admin(role):
+            return connection.execute(
+                """
+                SELECT
+                    students.id,
+                    students.name,
+                    students.student_id,
+                    students.email,
+                    COALESCE(GROUP_CONCAT(DISTINCT courses.course_name), 'Not enrolled'),
+                    COALESCE(GROUP_CONCAT(DISTINCT courses.course_code), ''),
+                    students.face_registered
+                FROM students
+                LEFT JOIN enrollments ON students.id = enrollments.student_id
+                LEFT JOIN courses ON enrollments.course_id = courses.id
+                GROUP BY
+                    students.id,
+                    students.name,
+                    students.student_id,
+                    students.email,
+                    students.face_registered
+                ORDER BY students.name, students.student_id
+                """
+            ).fetchall()
 
-    connection.close()
+        return connection.execute(
+            """
+            SELECT
+                students.id,
+                students.name,
+                students.student_id,
+                students.email,
+                GROUP_CONCAT(DISTINCT courses.course_name),
+                GROUP_CONCAT(DISTINCT courses.course_code),
+                students.face_registered
+            FROM students
+            JOIN enrollments ON students.id = enrollments.student_id
+            JOIN courses ON enrollments.course_id = courses.id
+            WHERE courses.instructor_id = ?
+            GROUP BY
+                students.id,
+                students.name,
+                students.student_id,
+                students.email,
+                students.face_registered
+            ORDER BY students.name, students.student_id
+            """,
+            (user_id,),
+        ).fetchall()
+    finally:
+        connection.close()
 
-    return rows
+
+def get_students_for_enrollment():
+    """Return global student profiles for enrollment selection."""
+    connection = get_connection()
+    try:
+        return connection.execute(
+            """
+            SELECT id, name, student_id, email, face_registered
+            FROM students
+            ORDER BY name, student_id
+            """
+        ).fetchall()
+    finally:
+        connection.close()
 
 
-def delete_student(student_id):
+def delete_student(student_id: int, role: str):
+    """Delete a global student profile; administrators only."""
+    if not is_admin(role):
+        raise PermissionError("Only administrators can delete student profiles.")
+
     student = get_student_by_db_id(student_id)
-
     if student is None:
         return
 
@@ -498,28 +600,22 @@ def delete_student(student_id):
 
     try:
         connection.execute("BEGIN")
-
         connection.execute(
             "DELETE FROM attendance WHERE student_id = ?",
             (student_id,),
         )
-
         connection.execute(
             "DELETE FROM enrollments WHERE student_id = ?",
             (student_id,),
         )
-
         connection.execute(
             "DELETE FROM students WHERE id = ?",
             (student_id,),
         )
-
         connection.commit()
-
     except Exception:
         connection.rollback()
         raise
-
     finally:
         connection.close()
 
@@ -527,7 +623,6 @@ def delete_student(student_id):
         FACES_DIR / f"{student_identifier}.jpg",
         EMBEDDINGS_DIR / f"{student_identifier}.npy",
     )
-
     for file_path in files_to_remove:
         try:
             file_path.unlink(missing_ok=True)
@@ -535,57 +630,84 @@ def delete_student(student_id):
             pass
 
 
-def get_total_courses():
+def get_total_courses(user_id: int, role: str):
     connection = get_connection()
+    try:
+        if is_admin(role):
+            return connection.execute("SELECT COUNT(*) FROM courses").fetchone()[0]
+        return connection.execute(
+            "SELECT COUNT(*) FROM courses WHERE instructor_id = ?",
+            (user_id,),
+        ).fetchone()[0]
+    finally:
+        connection.close()
 
-    count = connection.execute(
-        "SELECT COUNT(*) FROM courses"
-    ).fetchone()[0]
 
-    connection.close()
-
-    return count
-
-
-def get_total_students():
+def get_total_students(user_id: int, role: str):
     connection = get_connection()
+    try:
+        if is_admin(role):
+            return connection.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+        return connection.execute(
+            """
+            SELECT COUNT(DISTINCT students.id)
+            FROM students
+            JOIN enrollments ON students.id = enrollments.student_id
+            JOIN courses ON enrollments.course_id = courses.id
+            WHERE courses.instructor_id = ?
+            """,
+            (user_id,),
+        ).fetchone()[0]
+    finally:
+        connection.close()
 
-    count = connection.execute(
-        "SELECT COUNT(*) FROM students"
-    ).fetchone()[0]
 
-    connection.close()
-
-    return count
-
-
-def get_today_attendance_count():
+def get_today_attendance_count(user_id: int, role: str):
+    today = datetime.now().strftime("%Y-%m-%d")
     connection = get_connection()
+    try:
+        if is_admin(role):
+            return connection.execute(
+                "SELECT COUNT(*) FROM attendance WHERE date = ?",
+                (today,),
+            ).fetchone()[0]
+        return connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM attendance
+            JOIN courses ON attendance.course_id = courses.id
+            WHERE attendance.date = ? AND courses.instructor_id = ?
+            """,
+            (today, user_id),
+        ).fetchone()[0]
+    finally:
+        connection.close()
 
-    count = connection.execute(
-        "SELECT COUNT(*) FROM attendance WHERE date = ?",
-        (datetime.now().strftime("%Y-%m-%d"),),
-    ).fetchone()[0]
 
-    connection.close()
+def mark_face_registered(
+    student_id: int,
+    user_id: int,
+    role: str,
+):
+    """Mark a face profile only when the user may access the student."""
+    if not can_access_student(student_id, user_id, role):
+        raise PermissionError(
+            "You do not have permission to register this student's face profile."
+        )
 
-    return count
-
-
-def mark_face_registered(student_id):
     connection = get_connection()
-
-    connection.execute(
-        """
-        UPDATE students
-        SET face_registered = 1
-        WHERE id = ?
-        """,
-        (student_id,),
-    )
-
-    connection.commit()
-    connection.close()
+    try:
+        connection.execute(
+            """
+            UPDATE students
+            SET face_registered = 1
+            WHERE id = ?
+            """,
+            (student_id,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def get_student_by_student_id(student_id):
@@ -642,20 +764,26 @@ def enrollment_exists(student_db_id, course_id):
     return row is not None
 
 
-def get_registered_faces_count():
+def get_registered_faces_count(user_id: int, role: str):
     connection = get_connection()
-
-    count = connection.execute(
-        """
-        SELECT COUNT(*)
-        FROM students
-        WHERE face_registered = 1
-        """
-    ).fetchone()[0]
-
-    connection.close()
-
-    return count
+    try:
+        if is_admin(role):
+            return connection.execute(
+                "SELECT COUNT(*) FROM students WHERE face_registered = 1"
+            ).fetchone()[0]
+        return connection.execute(
+            """
+            SELECT COUNT(DISTINCT students.id)
+            FROM students
+            JOIN enrollments ON students.id = enrollments.student_id
+            JOIN courses ON enrollments.course_id = courses.id
+            WHERE students.face_registered = 1
+              AND courses.instructor_id = ?
+            """,
+            (user_id,),
+        ).fetchone()[0]
+    finally:
+        connection.close()
 
 
 def is_student_enrolled(student_id_text, course_id):
@@ -706,18 +834,21 @@ def attendance_exists(student_id_text, course_id, date):
     return row is not None
 
 
-def mark_attendance(student_id_text, course_id):
+def mark_attendance(
+    student_id_text: str,
+    course_id: int,
+    user_id: int,
+    role: str,
+):
+    if not can_access_course(course_id, user_id, role):
+        return False, "You cannot take attendance for this course."
+
     today = datetime.now().strftime("%Y-%m-%d")
     current_time = datetime.now().strftime("%H:%M:%S")
-
     connection = get_connection()
 
     student = connection.execute(
-        """
-        SELECT id
-        FROM students
-        WHERE student_id = ?
-        """,
+        "SELECT id FROM students WHERE student_id = ?",
         (student_id_text.strip(),),
     ).fetchone()
 
@@ -729,42 +860,41 @@ def mark_attendance(student_id_text, course_id):
         connection.execute(
             """
             INSERT INTO attendance (
-                student_id,
-                course_id,
-                date,
-                status,
-                marked_at
+                student_id, course_id, date, status, marked_at
             )
             VALUES (?, ?, ?, ?, ?)
             """,
-            (
-                student[0],
-                course_id,
-                today,
-                "Present",
-                current_time,
-            ),
+            (student[0], course_id, today, "Present", current_time),
         )
-
         connection.commit()
-
         return True, "Attendance marked successfully."
-
     except sqlite3.IntegrityError:
         connection.rollback()
-
         return False, "Attendance already marked for today."
-
     finally:
         connection.close()
 
 
-def get_attendance_records(course_id=None):
+def get_attendance_records(
+    user_id: int,
+    role: str,
+    course_id=None,
+):
     connection = get_connection()
+    conditions = []
+    parameters = []
 
-    if course_id:
-        rows = connection.execute(
-            """
+    if not is_admin(role):
+        conditions.append("courses.instructor_id = ?")
+        parameters.append(user_id)
+    if course_id is not None:
+        conditions.append("courses.id = ?")
+        parameters.append(course_id)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    try:
+        return connection.execute(
+            f"""
             SELECT
                 students.name,
                 students.student_id,
@@ -774,139 +904,115 @@ def get_attendance_records(course_id=None):
                 attendance.marked_at,
                 attendance.status
             FROM attendance
-            JOIN students
-                ON attendance.student_id = students.id
-            JOIN courses
-                ON attendance.course_id = courses.id
-            WHERE courses.id = ?
-            ORDER BY
-                attendance.date DESC,
-                attendance.marked_at DESC
+            JOIN students ON attendance.student_id = students.id
+            JOIN courses ON attendance.course_id = courses.id
+            {where_clause}
+            ORDER BY attendance.date DESC, attendance.marked_at DESC
             """,
-            (course_id,),
+            parameters,
         ).fetchall()
-
-    else:
-        rows = connection.execute("""
-            SELECT
-                students.name,
-                students.student_id,
-                courses.course_name,
-                courses.course_code,
-                attendance.date,
-                attendance.marked_at,
-                attendance.status
-            FROM attendance
-            JOIN students
-                ON attendance.student_id = students.id
-            JOIN courses
-                ON attendance.course_id = courses.id
-            ORDER BY
-                attendance.date DESC,
-                attendance.marked_at DESC
-        """).fetchall()
-
-    connection.close()
-
-    return rows
+    finally:
+        connection.close()
 
 
-def get_analytics_data(course_id=None):
+def get_analytics_data(
+    user_id: int,
+    role: str,
+    course_id=None,
+):
     connection = get_connection()
+    conditions = []
+    parameters = []
 
-    if course_id:
-        rows = connection.execute(
-            """
+    if not is_admin(role):
+        conditions.append("courses.instructor_id = ?")
+        parameters.append(user_id)
+    if course_id is not None:
+        conditions.append("courses.id = ?")
+        parameters.append(course_id)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    try:
+        return connection.execute(
+            f"""
             SELECT
                 students.name,
                 students.student_id,
                 courses.course_name,
                 COUNT(attendance.id) AS present_count
             FROM students
-            JOIN enrollments
-                ON students.id = enrollments.student_id
-            JOIN courses
-                ON enrollments.course_id = courses.id
+            JOIN enrollments ON students.id = enrollments.student_id
+            JOIN courses ON enrollments.course_id = courses.id
             LEFT JOIN attendance
                 ON students.id = attendance.student_id
                 AND courses.id = attendance.course_id
-            WHERE courses.id = ?
-            GROUP BY students.id, courses.id
-            ORDER BY students.name
-            """,
-            (course_id,),
-        ).fetchall()
-
-    else:
-        rows = connection.execute("""
-            SELECT
-                students.name,
-                students.student_id,
-                courses.course_name,
-                COUNT(attendance.id) AS present_count
-            FROM students
-            JOIN enrollments
-                ON students.id = enrollments.student_id
-            JOIN courses
-                ON enrollments.course_id = courses.id
-            LEFT JOIN attendance
-                ON students.id = attendance.student_id
-                AND courses.id = attendance.course_id
+            {where_clause}
             GROUP BY students.id, courses.id
             ORDER BY courses.course_name, students.name
-        """).fetchall()
+            """,
+            parameters,
+        ).fetchall()
+    finally:
+        connection.close()
 
-    connection.close()
 
-    return rows
-
-
-def get_student_enrollments(student_db_id):
+def get_student_enrollments(
+    student_db_id: int,
+    user_id: int,
+    role: str,
+):
     connection = get_connection()
+    try:
+        if is_admin(role):
+            return connection.execute(
+                """
+                SELECT courses.id, courses.course_name, courses.course_code
+                FROM enrollments
+                JOIN courses ON enrollments.course_id = courses.id
+                WHERE enrollments.student_id = ?
+                ORDER BY courses.course_name, courses.course_code
+                """,
+                (student_db_id,),
+            ).fetchall()
+        return connection.execute(
+            """
+            SELECT courses.id, courses.course_name, courses.course_code
+            FROM enrollments
+            JOIN courses ON enrollments.course_id = courses.id
+            WHERE enrollments.student_id = ?
+              AND courses.instructor_id = ?
+            ORDER BY courses.course_name, courses.course_code
+            """,
+            (student_db_id, user_id),
+        ).fetchall()
+    finally:
+        connection.close()
 
-    rows = connection.execute(
-        """
-        SELECT
-            courses.id,
-            courses.course_name,
-            courses.course_code
-        FROM enrollments
-        JOIN courses
-            ON enrollments.course_id = courses.id
-        WHERE enrollments.student_id = ?
-        ORDER BY courses.course_name, courses.course_code
-        """,
-        (student_db_id,),
-    ).fetchall()
 
-    connection.close()
+def unenroll_student(
+    student_db_id: int,
+    course_id: int,
+    user_id: int,
+    role: str,
+):
+    if not can_access_course(course_id, user_id, role):
+        raise PermissionError("You cannot manage enrollment for this course.")
 
-    return rows
-
-
-def unenroll_student(student_db_id, course_id):
     connection = get_connection()
-
     try:
         cursor = connection.execute(
             """
             DELETE FROM enrollments
-            WHERE student_id = ?
-              AND course_id = ?
+            WHERE student_id = ? AND course_id = ?
             """,
-            (
-                student_db_id,
-                course_id,
-            ),
+            (student_db_id, course_id),
         )
-
         connection.commit()
-
         return cursor.rowcount > 0
-
     except sqlite3.Error:
         connection.rollback()
         raise
-
     finally:
         connection.close()
+
+

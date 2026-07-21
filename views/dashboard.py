@@ -25,7 +25,8 @@ def _navigate(page_name: str) -> None:
 
 
 def show_dashboard():
-    user_name = st.session_state.user.get("name", "there")
+    user = st.session_state.user
+    user_name = user.get("name", "there")
     today = datetime.now().strftime("%A, %B %d, %Y")
 
     page_header(
@@ -33,10 +34,10 @@ def show_dashboard():
         f"Here is what is happening in RollIn today. {today}",
     )
 
-    total_students = get_total_students()
-    total_courses = get_total_courses()
-    registered_faces = get_registered_faces_count()
-    today_attendance = get_today_attendance_count()
+    total_students = get_total_students(user["id"], user["role"])
+    total_courses = get_total_courses(user["id"], user["role"])
+    registered_faces = get_registered_faces_count(user["id"], user["role"])
+    today_attendance = get_today_attendance_count(user["id"], user["role"])
 
     col1, col2, col3, col4 = st.columns(4)
 

@@ -11,7 +11,8 @@ def show_history():
         "Review attendance records and export course reports."
     )
 
-    courses = get_courses()
+    user = st.session_state.user
+    courses = get_courses(user_id=user["id"], role=user["role"])
     course_options = {"All Courses": None}
 
     for course in courses:
@@ -31,7 +32,11 @@ def show_history():
         key="history_course_filter",
     )
 
-    records = get_attendance_records(course_options[selected_course])
+    records = get_attendance_records(
+        user_id=user["id"],
+        role=user["role"],
+        course_id=course_options[selected_course],
+    )
 
     if not records:
         st.info("No attendance records found. Start an attendance session to generate the first classroom record.")

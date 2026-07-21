@@ -12,6 +12,7 @@ data/*.db-wal
 data/*.db-shm
 data/faces/
 data/embeddings/
+data/*.npy
 data/*.jpg
 data/*.jpeg
 data/*.png

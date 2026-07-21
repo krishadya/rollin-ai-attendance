@@ -57,6 +57,8 @@ def _run_capture_once(
     student_db_id,
     student_id_text,
     student_display_name,
+    user_id,
+    role,
     preview_placeholder,
     status_placeholder,
 ):
@@ -116,7 +118,11 @@ def _run_capture_once(
             }
             return
 
-        mark_face_registered(student_db_id)
+        mark_face_registered(
+            student_id=student_db_id,
+            user_id=user_id,
+            role=role,
+        )
         success_message = (
             f"Face profile registered successfully for {student_display_name}."
         )
@@ -138,7 +144,7 @@ def _run_capture_once(
 
 
 @st.dialog("Capture Face Profile", width="large")
-def _run_capture_dialog(student_options):
+def _run_capture_dialog(student_options, user_id, role):
     selected_student = st.session_state.get(FACE_SELECTED_STUDENT_KEY)
 
     if not selected_student or selected_student not in student_options:
@@ -169,6 +175,8 @@ def _run_capture_dialog(student_options):
             student_db_id,
             student_id_text,
             student_display_name,
+            user_id,
+            role,
             preview_placeholder,
             status_placeholder,
         )
@@ -223,7 +231,8 @@ def show_face_registration():
         tone="accent",
     )
 
-    students = get_students()
+    user = st.session_state.user
+    students = get_students(user_id=user["id"], role=user["role"])
 
     if not students:
         st.info("No students are available. Add a student before registering a face profile.")
@@ -262,7 +271,7 @@ def show_face_registration():
         st.session_state[FACE_CAPTURE_RESULT_KEY] = None
 
     if st.session_state.get(FACE_DIALOG_OPEN_KEY):
-        _run_capture_dialog(student_options)
+        _run_capture_dialog(student_options, user["id"], user["role"])
 
 
 if __name__ == "__main__":

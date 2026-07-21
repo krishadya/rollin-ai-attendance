@@ -9,9 +9,16 @@ from database import (
     get_courses,
     get_student_enrollments,
     get_students,
+    get_students_for_enrollment,
     unenroll_student,
 )
-from ui import page_header, queue_widget_reset, section_heading, set_flash_success, status_banner
+from ui import (
+    page_header,
+    queue_widget_reset,
+    section_heading,
+    set_flash_success,
+    status_banner,
+)
 
 
 def _course_count(course_codes: str) -> int:
@@ -21,6 +28,11 @@ def _course_count(course_codes: str) -> int:
 
 
 def show_students():
+    user = st.session_state.user
+    courses = get_courses(user_id=user["id"], role=user["role"])
+    visible_students = get_students(user_id=user["id"], role=user["role"])
+    enrollment_students = get_students_for_enrollment()
+
     page_header(
         "Students",
         (
@@ -32,14 +44,11 @@ def show_students():
     status_banner(
         "Student workflow",
         (
-            "Create each student once. Then select the existing student to enroll "
-            "or unenroll them from courses."
+            "Student profiles are shared across RollIn. Instructors manage "
+            "enrollment only for their own courses."
         ),
         tone="info",
     )
-
-    courses = get_courses()
-    students = get_students()
 
     section_heading(
         "Add Student",
@@ -56,7 +65,11 @@ def show_students():
         )
 
     if add_submitted:
-        if not student_name.strip() or not student_number.strip() or not student_email.strip():
+        if (
+            not student_name.strip()
+            or not student_number.strip()
+            or not student_email.strip()
+        ):
             st.error("Please complete all student fields.")
         else:
             try:
@@ -74,17 +87,17 @@ def show_students():
 
     section_heading(
         "Enroll Student",
-        "Select an existing student and assign them to a course.",
+        "Select an existing student and assign them to a course you can manage.",
     )
 
-    if not students:
-        st.info("No students yet. Add your first student above before creating an enrollment.")
+    if not enrollment_students:
+        st.info("No students yet. Add your first student above before enrolling.")
     elif not courses:
-        st.info("No courses yet. Create a course before enrolling students.")
+        st.info("No accessible courses yet. Create a course before enrolling students.")
     else:
         student_options = {
             f"{student[1]} ({student[2]})": student[0]
-            for student in students
+            for student in enrollment_students
         }
         course_options = {
             f"{course[1]} ({course[2]})": course[0]
@@ -115,7 +128,6 @@ def show_students():
             if selected_student_label is None:
                 st.error("Please select a student.")
                 return
-
             if selected_course_label is None:
                 st.error("Please select a course.")
                 return
@@ -127,14 +139,19 @@ def show_students():
                 st.error("This student is already enrolled in the selected course.")
             else:
                 try:
-                    enroll_student(selected_student_id, selected_course_id)
+                    enroll_student(
+                        student_db_id=selected_student_id,
+                        course_id=selected_course_id,
+                        user_id=user["id"],
+                        role=user["role"],
+                    )
                     queue_widget_reset(
                         "enroll_student_selection",
                         "enroll_course_selection",
                     )
                     set_flash_success("Student enrolled successfully.")
                     st.rerun()
-                except ValueError as error:
+                except (ValueError, PermissionError) as error:
                     st.error(str(error))
                 except Exception:
                     st.error("The enrollment could not be created. Please try again.")
@@ -143,15 +160,18 @@ def show_students():
 
     section_heading(
         "Manage Enrollments",
-        "Select a student to review and remove individual course enrollments.",
+        "Review and remove enrollments from courses you can manage.",
     )
 
-    if not students:
-        st.info("No students are available. Add a student before managing enrollments.")
+    if not visible_students:
+        st.info(
+            "No students are enrolled in your accessible courses yet. "
+            "Use the Enroll Student section above to add one."
+        )
     else:
         manage_student_options = {
             f"{student[1]} ({student[2]})": student[0]
-            for student in students
+            for student in visible_students
         }
         selected_manage_student_label = st.selectbox(
             "Select Student",
@@ -164,13 +184,17 @@ def show_students():
         if selected_manage_student_label is None:
             st.info("Select a student to review current enrollments.")
         else:
-            selected_manage_student_id = manage_student_options[selected_manage_student_label]
-            current_enrollments = get_student_enrollments(selected_manage_student_id)
+            selected_manage_student_id = manage_student_options[
+                selected_manage_student_label
+            ]
+            current_enrollments = get_student_enrollments(
+                student_db_id=selected_manage_student_id,
+                user_id=user["id"],
+                role=user["role"],
+            )
 
             if not current_enrollments:
-                st.info(
-                    "This student is not enrolled in any courses. Use the Enroll Student section above to add one."
-                )
+                st.info("This student has no enrollments you can manage.")
             else:
                 st.markdown(f"**Current Enrollments ({len(current_enrollments)})**")
 
@@ -195,28 +219,37 @@ def show_students():
                                 key=f"unenroll_{selected_manage_student_id}_{course_id}",
                                 use_container_width=True,
                             ):
-                                removed = unenroll_student(selected_manage_student_id, course_id)
-                                if removed:
-                                    queue_widget_reset("manage_enrollment_student")
-                                    set_flash_success("Student unenrolled successfully.")
-                                    st.rerun()
-                                else:
+                                try:
+                                    removed = unenroll_student(
+                                        student_db_id=selected_manage_student_id,
+                                        course_id=course_id,
+                                        user_id=user["id"],
+                                        role=user["role"],
+                                    )
+                                    if removed:
+                                        queue_widget_reset("manage_enrollment_student")
+                                        set_flash_success("Student unenrolled successfully.")
+                                        st.rerun()
                                     st.error("The enrollment could not be found.")
+                                except PermissionError as error:
+                                    st.error(str(error))
 
     st.divider()
 
     section_heading(
         "Student Directory",
-        "Review student profiles, enrollment totals, and face-registration status.",
+        (
+            "All student profiles and enrollment totals."
+            if user["role"] == "admin"
+            else "Students enrolled in at least one of your courses."
+        ),
     )
 
-    if not students:
-        st.info(
-            "No students yet. Add your first student above to begin building the directory."
-        )
+    if not visible_students:
+        st.info("No students are available in this view yet.")
     else:
         student_dataframe = pd.DataFrame(
-            students,
+            visible_students,
             columns=[
                 "ID",
                 "Name",
@@ -228,13 +261,15 @@ def show_students():
             ],
         )
         student_dataframe["Courses"] = student_dataframe["Course Codes"].apply(
-            lambda value: f"{_course_count(value)} course"
-            if _course_count(value) == 1
-            else f"{_course_count(value)} courses"
+            lambda value: (
+                f"{_course_count(value)} course"
+                if _course_count(value) == 1
+                else f"{_course_count(value)} courses"
+            )
         )
-        student_dataframe["Face Registered"] = student_dataframe["Face Registered"].map(
-            {1: "Registered", 0: "Not Registered"}
-        )
+        student_dataframe["Face Registered"] = student_dataframe[
+            "Face Registered"
+        ].map({1: "Registered", 0: "Not Registered"})
 
         st.dataframe(
             student_dataframe[
@@ -246,51 +281,66 @@ def show_students():
 
     st.divider()
 
-    section_heading(
-        "Delete Student",
-        (
-            "Deleting a student also removes their enrollments, attendance records, "
-            "face image, and face embedding."
-        ),
-    )
-
-    if not students:
-        st.info("No students are available to delete.")
-    else:
-        delete_student_options = {
-            f"{student[1]} ({student[2]})": student[0]
-            for student in students
-        }
-        selected_student_to_delete = st.selectbox(
-            "Select Student",
-            options=list(delete_student_options.keys()),
-            index=None,
-            placeholder="--- Select Student ---",
-            key="delete_student_selection",
-        )
-
-        st.warning(
-            "This action permanently removes the student and all associated attendance and face-registration data."
-        )
-        confirm_delete = st.checkbox(
-            "I understand that this action cannot be undone.",
-            key="confirm_student_delete",
-        )
-
-        if st.button(
+    if user["role"] == "admin":
+        section_heading(
             "Delete Student",
-            use_container_width=True,
-            key="delete_student_button",
-            disabled=not confirm_delete,
-        ):
-            if selected_student_to_delete is None:
-                st.error("Please select a student.")
-                return
+            (
+                "Deleting a student also removes their enrollments, attendance "
+                "records, face image, and face embedding."
+            ),
+        )
 
-            delete_student(delete_student_options[selected_student_to_delete])
-            queue_widget_reset("delete_student_selection")
-            set_flash_success("Student deleted successfully.")
-            st.rerun()
+        if not visible_students:
+            st.info("No students are available to delete.")
+        else:
+            delete_student_options = {
+                f"{student[1]} ({student[2]})": student[0]
+                for student in visible_students
+            }
+            selected_student_to_delete = st.selectbox(
+                "Select Student",
+                options=list(delete_student_options.keys()),
+                index=None,
+                placeholder="--- Select Student ---",
+                key="delete_student_selection",
+            )
+
+            st.warning(
+                "This action permanently removes the student and all associated data."
+            )
+            confirm_delete = st.checkbox(
+                "I understand that this action cannot be undone.",
+                key="confirm_student_delete",
+            )
+
+            if st.button(
+                "Delete Student",
+                use_container_width=True,
+                key="delete_student_button",
+                disabled=not confirm_delete,
+            ):
+                if selected_student_to_delete is None:
+                    st.error("Please select a student.")
+                    return
+
+                try:
+                    delete_student(
+                        student_id=delete_student_options[selected_student_to_delete],
+                        role=user["role"],
+                    )
+                    queue_widget_reset("delete_student_selection")
+                    set_flash_success("Student deleted successfully.")
+                    st.rerun()
+                except PermissionError as error:
+                    st.error(str(error))
+    else:
+        section_heading(
+            "Student Profile Management",
+            "Only administrators can permanently delete global student profiles.",
+        )
+        st.info(
+            "Use Manage Enrollments to remove a student from one of your courses."
+        )
 
 
 if __name__ == "__main__":

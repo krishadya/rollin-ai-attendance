@@ -11,7 +11,8 @@ def show_analytics():
         "Track attendance performance by student and course."
     )
 
-    courses = get_courses()
+    user = st.session_state.user
+    courses = get_courses(user_id=user["id"], role=user["role"])
 
     course_options = {"All Courses": None}
     for course in courses:
@@ -26,7 +27,11 @@ def show_analytics():
         key="analytics_course_filter",
     )
 
-    data = get_analytics_data(course_options[selected_course])
+    data = get_analytics_data(
+        user_id=user["id"],
+        role=user["role"],
+        course_id=course_options[selected_course],
+    )
 
     if not data:
         st.info("No analytics available yet. Attendance totals will appear here after students are marked present.")

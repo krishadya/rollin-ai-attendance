@@ -25,7 +25,7 @@ from ui import (
 
 
 @st.dialog("Live Attendance Scan", width="large")
-def _run_attendance_dialog(course_id, scan_seconds=15):
+def _run_attendance_dialog(course_id, user_id, role, scan_seconds=15):
     cap, _ = open_camera()
 
     if cap is None:
@@ -96,7 +96,12 @@ def _run_attendance_dialog(course_id, scan_seconds=15):
                 )
                 continue
 
-            success, message = mark_attendance(student_id, course_id)
+            success, message = mark_attendance(
+                student_id_text=student_id,
+                course_id=course_id,
+                user_id=user_id,
+                role=role,
+            )
 
             if success:
                 if name not in marked_students:
@@ -172,7 +177,8 @@ def show_attendance():
         tone="info",
     )
 
-    courses = get_courses()
+    user = st.session_state.user
+    courses = get_courses(user_id=user["id"], role=user["role"])
 
     if not courses:
         st.info("No courses are available. Create a course and enroll students before starting attendance.")
@@ -203,7 +209,11 @@ def show_attendance():
             return
 
         course_id = course_options[selected_course]
-        _run_attendance_dialog(course_id)
+        _run_attendance_dialog(
+            course_id,
+            user_id=user["id"],
+            role=user["role"],
+        )
 
 
 if __name__ == "__main__":
