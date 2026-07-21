@@ -18,7 +18,13 @@ def show_analytics():
         course_options[f"{course[1]} ({course[2]})"] = course[0]
 
     section_heading("Course Filter", "Focus on a single class or review attendance across the full system.")
-    selected_course = st.selectbox("Filter by Course", list(course_options.keys()))
+    selected_course = st.selectbox(
+        "Filter by Course",
+        options=["All Courses"] + [
+            course_name for course_name in course_options.keys() if course_name != "All Courses"
+        ],
+        key="analytics_course_filter",
+    )
 
     data = get_analytics_data(course_options[selected_course])
 

@@ -11,7 +11,7 @@ from database import (
     get_students,
     unenroll_student,
 )
-from ui import page_header, section_heading, status_banner
+from ui import page_header, queue_widget_reset, section_heading, set_flash_success, status_banner
 
 
 def _course_count(course_codes: str) -> int:
@@ -61,7 +61,7 @@ def show_students():
         else:
             try:
                 add_student(student_name, student_number, student_email)
-                st.success(
+                set_flash_success(
                     "Student added successfully. You can now enroll the student below."
                 )
                 st.rerun()
@@ -95,10 +95,16 @@ def show_students():
             selected_student_label = st.selectbox(
                 "Select Student",
                 options=list(student_options.keys()),
+                index=None,
+                placeholder="--- Select Student ---",
+                key="enroll_student_selection",
             )
             selected_course_label = st.selectbox(
                 "Select Course",
                 options=list(course_options.keys()),
+                index=None,
+                placeholder="--- Select Course ---",
+                key="enroll_course_selection",
             )
             enroll_submitted = st.form_submit_button(
                 "Enroll Student",
@@ -106,6 +112,14 @@ def show_students():
             )
 
         if enroll_submitted:
+            if selected_student_label is None:
+                st.error("Please select a student.")
+                return
+
+            if selected_course_label is None:
+                st.error("Please select a course.")
+                return
+
             selected_student_id = student_options[selected_student_label]
             selected_course_id = course_options[selected_course_label]
 
@@ -114,7 +128,11 @@ def show_students():
             else:
                 try:
                     enroll_student(selected_student_id, selected_course_id)
-                    st.success("Student enrolled successfully.")
+                    queue_widget_reset(
+                        "enroll_student_selection",
+                        "enroll_course_selection",
+                    )
+                    set_flash_success("Student enrolled successfully.")
                     st.rerun()
                 except ValueError as error:
                     st.error(str(error))
@@ -138,45 +156,52 @@ def show_students():
         selected_manage_student_label = st.selectbox(
             "Select Student",
             options=list(manage_student_options.keys()),
+            index=None,
+            placeholder="--- Select Student ---",
             key="manage_enrollment_student",
         )
-        selected_manage_student_id = manage_student_options[selected_manage_student_label]
-        current_enrollments = get_student_enrollments(selected_manage_student_id)
 
-        if not current_enrollments:
-            st.info(
-                "This student is not enrolled in any courses. Use the Enroll Student section above to add one."
-            )
+        if selected_manage_student_label is None:
+            st.info("Select a student to review current enrollments.")
         else:
-            st.markdown(f"**Current Enrollments ({len(current_enrollments)})**")
+            selected_manage_student_id = manage_student_options[selected_manage_student_label]
+            current_enrollments = get_student_enrollments(selected_manage_student_id)
 
-            with st.container(key="enrollment_table"):
-                header_course, header_code, header_action = st.columns([4, 2, 1.5])
-                with header_course:
-                    st.caption("COURSE")
-                with header_code:
-                    st.caption("CODE")
-                with header_action:
-                    st.caption("ACTION")
+            if not current_enrollments:
+                st.info(
+                    "This student is not enrolled in any courses. Use the Enroll Student section above to add one."
+                )
+            else:
+                st.markdown(f"**Current Enrollments ({len(current_enrollments)})**")
 
-                for course_id, course_name, course_code in current_enrollments:
-                    course_column, code_column, action_column = st.columns([4, 2, 1.5])
-                    with course_column:
-                        st.write(course_name)
-                    with code_column:
-                        st.write(course_code)
-                    with action_column:
-                        if st.button(
-                            "Unenroll",
-                            key=f"unenroll_{selected_manage_student_id}_{course_id}",
-                            use_container_width=True,
-                        ):
-                            removed = unenroll_student(selected_manage_student_id, course_id)
-                            if removed:
-                                st.success("Student unenrolled successfully.")
-                                st.rerun()
-                            else:
-                                st.error("The enrollment could not be found.")
+                with st.container(key="enrollment_table"):
+                    header_course, header_code, header_action = st.columns([4, 2, 1.5])
+                    with header_course:
+                        st.caption("COURSE")
+                    with header_code:
+                        st.caption("CODE")
+                    with header_action:
+                        st.caption("ACTION")
+
+                    for course_id, course_name, course_code in current_enrollments:
+                        course_column, code_column, action_column = st.columns([4, 2, 1.5])
+                        with course_column:
+                            st.write(course_name)
+                        with code_column:
+                            st.write(course_code)
+                        with action_column:
+                            if st.button(
+                                "Unenroll",
+                                key=f"unenroll_{selected_manage_student_id}_{course_id}",
+                                use_container_width=True,
+                            ):
+                                removed = unenroll_student(selected_manage_student_id, course_id)
+                                if removed:
+                                    queue_widget_reset("manage_enrollment_student")
+                                    set_flash_success("Student unenrolled successfully.")
+                                    st.rerun()
+                                else:
+                                    st.error("The enrollment could not be found.")
 
     st.divider()
 
@@ -239,6 +264,8 @@ def show_students():
         selected_student_to_delete = st.selectbox(
             "Select Student",
             options=list(delete_student_options.keys()),
+            index=None,
+            placeholder="--- Select Student ---",
             key="delete_student_selection",
         )
 
@@ -256,8 +283,13 @@ def show_students():
             key="delete_student_button",
             disabled=not confirm_delete,
         ):
+            if selected_student_to_delete is None:
+                st.error("Please select a student.")
+                return
+
             delete_student(delete_student_options[selected_student_to_delete])
-            st.success("Student deleted successfully.")
+            queue_widget_reset("delete_student_selection")
+            set_flash_success("Student deleted successfully.")
             st.rerun()
 
 

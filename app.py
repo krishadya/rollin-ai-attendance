@@ -6,7 +6,7 @@ import streamlit.components.v1 as components
 
 from auth import logout, require_login, show_login
 from database import init_db
-from ui import app_footer
+from ui import apply_widget_resets, app_footer, show_flash_messages
 from views.analytics import show_analytics
 from views.attendance import show_attendance
 from views.courses import show_courses
@@ -200,6 +200,11 @@ def render_topbar():
         st.markdown(
             f'<div class="brand-left">'
             f'{logo_html}'
+            f'<input type="checkbox" id="nav-toggle" class="nav-toggle-checkbox" />'
+            f'<label for="nav-toggle" class="nav-toggle-label" aria-label="Open menu">'
+            f'<span></span><span></span><span></span>'
+            f'</label>'
+            f'<label for="nav-toggle" class="nav-toggle-overlay" aria-hidden="true"></label>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -244,13 +249,14 @@ def render_topbar():
 def main():
     st.set_page_config(
         page_title=APP_NAME,
-        page_icon="logo.png",
+        page_icon="favicon.ico",
         layout="wide",
         initial_sidebar_state="collapsed",
     )
 
     init_db()
     load_css()
+    apply_widget_resets()
 
     if not require_login():
         st.markdown(
@@ -281,6 +287,7 @@ def main():
         unsafe_allow_html=True,
     )
 
+    show_flash_messages()
     PAGES[st.session_state.page]()
     app_footer(APP_NAME)
 

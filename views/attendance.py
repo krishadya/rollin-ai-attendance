@@ -13,12 +13,20 @@ from database import (
     mark_attendance,
 )
 from face_utils import recognize_face
-from ui import hint_text, metric_card, page_header, section_heading, status_banner
+from ui import (
+    hint_text,
+    metric_card,
+    page_header,
+    queue_widget_reset,
+    section_heading,
+    set_flash_success,
+    status_banner,
+)
 
 
 @st.dialog("Live Attendance Scan", width="large")
 def _run_attendance_dialog(course_id, scan_seconds=15):
-    cap, camera_index = open_camera()
+    cap, _ = open_camera()
 
     if cap is None:
         st.error("Unable to access webcam.")
@@ -34,76 +42,79 @@ def _run_attendance_dialog(course_id, scan_seconds=15):
     not_enrolled_students = []
     unknown_count = 0
 
-    start_time = time.time()
-    last_check_time = 0
+    try:
+        start_time = time.time()
+        last_check_time = 0
 
-    while time.time() - start_time < scan_seconds:
-        ret, frame = cap.read()
+        while time.time() - start_time < scan_seconds:
+            ret, frame = cap.read()
 
-        if not ret:
-            status_placeholder.error("Unable to read webcam frame.")
-            break
+            if not ret:
+                status_placeholder.error("Unable to read webcam frame.")
+                break
 
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_placeholder.image(rgb_frame, channels="RGB")
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_placeholder.image(rgb_frame, channels="RGB")
 
-        current_time = time.time()
+            current_time = time.time()
 
-        if current_time - last_check_time < 3:
-            continue
+            if current_time - last_check_time < 3:
+                continue
 
-        last_check_time = current_time
-        test_path = Path("data/live_attendance.jpg")
-        small_frame = cv2.resize(frame, (640, 480))
-        cv2.imwrite(str(test_path), small_frame)
+            last_check_time = current_time
+            test_path = Path("data/live_attendance.jpg")
+            small_frame = cv2.resize(frame, (640, 480))
+            cv2.imwrite(str(test_path), small_frame)
 
-        result, error = recognize_face(test_path)
+            result, error = recognize_face(test_path)
 
-        if error:
-            status_placeholder.warning(error)
-            continue
+            if error:
+                status_placeholder.warning(error)
+                continue
 
-        if result["status"] == "unknown":
-            unknown_count += 1
-            status_placeholder.warning(
-                f"Unknown person detected. Similarity: {result['confidence']}%"
-            )
-            continue
+            if result["status"] == "unknown":
+                unknown_count += 1
+                status_placeholder.warning(
+                    f"Unknown person detected. Similarity: {result['confidence']}%"
+                )
+                continue
 
-        student = get_student_by_student_id(result["student_id"])
+            student = get_student_by_student_id(result["student_id"])
 
-        if student is None:
-            status_placeholder.error("Student not found.")
-            continue
+            if student is None:
+                status_placeholder.error("Student not found.")
+                continue
 
-        _, name, student_id, _ = student
+            _, name, student_id, _ = student
 
-        if not is_student_enrolled(student_id, course_id):
-            if name not in not_enrolled_students:
-                not_enrolled_students.append(name)
+            if not is_student_enrolled(student_id, course_id):
+                if name not in not_enrolled_students:
+                    not_enrolled_students.append(name)
 
-            status_placeholder.error(
-                f"{name} is recognized but not enrolled in this course."
-            )
-            continue
+                status_placeholder.error(
+                    f"{name} is recognized but not enrolled in this course."
+                )
+                continue
 
-        success, message = mark_attendance(student_id, course_id)
+            success, message = mark_attendance(student_id, course_id)
 
-        if success:
-            if name not in marked_students:
-                marked_students.append(name)
+            if success:
+                if name not in marked_students:
+                    marked_students.append(name)
 
-            status_placeholder.success(
-                f"Attendance recorded for {name}. Confidence: {result['confidence']}%"
-            )
-        else:
-            if name not in already_marked_students:
-                already_marked_students.append(name)
+                status_placeholder.success(
+                    f"Attendance recorded for {name}. Confidence: {result['confidence']}%"
+                )
+            else:
+                if name not in already_marked_students:
+                    already_marked_students.append(name)
 
-            status_placeholder.warning(f"{name}: {message}")
+                status_placeholder.warning(f"{name}: {message}")
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+        frame_placeholder.empty()
 
-    cap.release()
-    frame_placeholder.empty()
     status_placeholder.success("Attendance session completed.")
 
     section_heading("Session Summary", "Review what happened in this scan.")
@@ -142,6 +153,8 @@ def _run_attendance_dialog(course_id, scan_seconds=15):
             st.caption("No recognized students were outside the selected course.")
 
     if st.button("Close", use_container_width=True, key="attendance_close_done"):
+        queue_widget_reset("attendance_course_selection")
+        set_flash_success("Attendance session completed.")
         st.rerun()
 
 
@@ -171,8 +184,13 @@ def show_attendance():
     }
 
     section_heading("Course Selection", "Choose the active class before starting the scan.")
-    selected_course = st.selectbox("Select Course", list(course_options.keys()))
-    course_id = course_options[selected_course]
+    selected_course = st.selectbox(
+        "Select Course",
+        list(course_options.keys()),
+        index=None,
+        placeholder="--- Select Course ---",
+        key="attendance_course_selection",
+    )
 
     hint_text(
         "The default session scans for 15 seconds and checks for recognizable faces every 3 seconds.",
@@ -180,6 +198,11 @@ def show_attendance():
     )
 
     if st.button("Start Attendance", use_container_width=True):
+        if selected_course is None:
+            st.error("Please select a course.")
+            return
+
+        course_id = course_options[selected_course]
         _run_attendance_dialog(course_id)
 
 

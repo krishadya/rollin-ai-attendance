@@ -48,5 +48,5 @@ def verify_password(password: str, stored_password: str) -> bool:
 
         return hmac.compare_digest(calculated_hash, stored_hash)
 
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return False

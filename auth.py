@@ -2,7 +2,7 @@ import streamlit as st
 
 from database import get_connection
 from security import hash_password, is_password_hash, verify_password
-from ui import section_heading
+from ui import section_heading, set_flash_success
 
 
 def login_user(email, password):
@@ -68,7 +68,7 @@ def show_login():
                     "role": user[3],
                 }
 
-                st.success("Login successful.")
+                set_flash_success("Login successful.")
                 st.rerun()
 
             else:

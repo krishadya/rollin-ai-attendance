@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from database import add_course, delete_course, get_courses
-from ui import page_header, section_heading, status_banner
+from ui import page_header, queue_widget_reset, section_heading, set_flash_success, status_banner
 
 
 def show_courses():
@@ -51,7 +51,7 @@ def show_courses():
                     course_code,
                     st.session_state.user["id"],
                 )
-                st.success("Course added successfully.")
+                set_flash_success("Course added successfully.")
                 st.rerun()
             except ValueError as error:
                 st.error(str(error))
@@ -99,6 +99,8 @@ def show_courses():
     selected_course = st.selectbox(
         "Select Course",
         options=list(course_options.keys()),
+        index=None,
+        placeholder="--- Select Course ---",
         key="delete_course_selection",
     )
 
@@ -117,6 +119,11 @@ def show_courses():
         key="delete_course_button",
         disabled=not confirm_delete,
     ):
+        if selected_course is None:
+            st.error("Please select a course.")
+            return
+
         delete_course(course_options[selected_course])
-        st.success("Course deleted successfully.")
+        queue_widget_reset("delete_course_selection")
+        set_flash_success("Course deleted successfully.")
         st.rerun()

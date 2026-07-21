@@ -2,8 +2,6 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from streamlit import cursor
-
 from security import hash_password, is_password_hash
 
 
@@ -86,198 +84,201 @@ def ensure_default_user(
             ),
         )
 
+
 def init_db():
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS courses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            course_name TEXT NOT NULL,
-            course_code TEXT NOT NULL,
-            instructor_id INTEGER,
-            FOREIGN KEY (instructor_id) REFERENCES users(id)
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            student_id TEXT UNIQUE NOT NULL,
-            email TEXT,
-            face_registered INTEGER DEFAULT 0
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS enrollments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER NOT NULL,
-            course_id INTEGER NOT NULL,
-            FOREIGN KEY (student_id) REFERENCES students(id),
-            FOREIGN KEY (course_id) REFERENCES courses(id)
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS attendance (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER NOT NULL,
-            course_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
-            status TEXT NOT NULL,
-            marked_at TEXT,
-            FOREIGN KEY (student_id) REFERENCES students(id),
-            FOREIGN KEY (course_id) REFERENCES courses(id)
-        )
-    """)
-
-    # Clean existing course names and codes.
-    existing_courses = cursor.execute(
-        "SELECT id, course_name, course_code FROM courses ORDER BY id"
-    ).fetchall()
-
-    for course_id, course_name, course_code in existing_courses:
-        cursor.execute(
-            """
-            UPDATE courses
-            SET course_name = ?, course_code = ?
-            WHERE id = ?
-            """,
-            (
-                normalize_course_name(course_name),
-                normalize_course_code(course_code),
-                course_id,
-            ),
-        )
-
-    # Merge duplicate courses that may already exist.
-    existing_courses = cursor.execute(
-        "SELECT id, course_code FROM courses ORDER BY id"
-    ).fetchall()
-
-    course_by_code = {}
-
-    for course_id, course_code in existing_courses:
-        normalized_code = normalize_course_code(course_code)
-
-        if normalized_code not in course_by_code:
-            course_by_code[normalized_code] = course_id
-            continue
-
-        original_course_id = course_by_code[normalized_code]
-        duplicate_course_id = course_id
-
-        # Move enrollments from the duplicate course to the original course.
-        cursor.execute(
-            """
-            INSERT OR IGNORE INTO enrollments (student_id, course_id)
-            SELECT student_id, ?
-            FROM enrollments
-            WHERE course_id = ?
-            """,
-            (original_course_id, duplicate_course_id),
-        )
-
-        # Move attendance from the duplicate course to the original course.
-        cursor.execute(
-            """
-            INSERT OR IGNORE INTO attendance (
-                student_id,
-                course_id,
-                date,
-                status,
-                marked_at
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                role TEXT NOT NULL
             )
-            SELECT
-                student_id,
-                ?,
-                date,
-                status,
-                marked_at
-            FROM attendance
-            WHERE course_id = ?
-            """,
-            (original_course_id, duplicate_course_id),
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS courses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                course_name TEXT NOT NULL,
+                course_code TEXT NOT NULL,
+                instructor_id INTEGER,
+                FOREIGN KEY (instructor_id) REFERENCES users(id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                student_id TEXT UNIQUE NOT NULL,
+                email TEXT,
+                face_registered INTEGER DEFAULT 0
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS enrollments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                course_id INTEGER NOT NULL,
+                FOREIGN KEY (student_id) REFERENCES students(id),
+                FOREIGN KEY (course_id) REFERENCES courses(id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                course_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                status TEXT NOT NULL,
+                marked_at TEXT,
+                FOREIGN KEY (student_id) REFERENCES students(id),
+                FOREIGN KEY (course_id) REFERENCES courses(id)
+            )
+        """)
+
+        # Clean existing course names and codes.
+        existing_courses = cursor.execute(
+            "SELECT id, course_name, course_code FROM courses ORDER BY id"
+        ).fetchall()
+
+        for course_id, course_name, course_code in existing_courses:
+            cursor.execute(
+                """
+                UPDATE courses
+                SET course_name = ?, course_code = ?
+                WHERE id = ?
+                """,
+                (
+                    normalize_course_name(course_name),
+                    normalize_course_code(course_code),
+                    course_id,
+                ),
+            )
+
+        # Merge duplicate courses that may already exist.
+        existing_courses = cursor.execute(
+            "SELECT id, course_code FROM courses ORDER BY id"
+        ).fetchall()
+
+        course_by_code = {}
+
+        for course_id, course_code in existing_courses:
+            normalized_code = normalize_course_code(course_code)
+
+            if normalized_code not in course_by_code:
+                course_by_code[normalized_code] = course_id
+                continue
+
+            original_course_id = course_by_code[normalized_code]
+            duplicate_course_id = course_id
+
+            # Move enrollments from the duplicate course to the original course.
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO enrollments (student_id, course_id)
+                SELECT student_id, ?
+                FROM enrollments
+                WHERE course_id = ?
+                """,
+                (original_course_id, duplicate_course_id),
+            )
+
+            # Move attendance from the duplicate course to the original course.
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO attendance (
+                    student_id,
+                    course_id,
+                    date,
+                    status,
+                    marked_at
+                )
+                SELECT
+                    student_id,
+                    ?,
+                    date,
+                    status,
+                    marked_at
+                FROM attendance
+                WHERE course_id = ?
+                """,
+                (original_course_id, duplicate_course_id),
+            )
+
+            cursor.execute(
+                "DELETE FROM attendance WHERE course_id = ?",
+                (duplicate_course_id,),
+            )
+            cursor.execute(
+                "DELETE FROM enrollments WHERE course_id = ?",
+                (duplicate_course_id,),
+            )
+            cursor.execute(
+                "DELETE FROM courses WHERE id = ?",
+                (duplicate_course_id,),
+            )
+
+        # Remove duplicate enrollments already stored in the database.
+        cursor.execute("""
+            DELETE FROM enrollments
+            WHERE id NOT IN (
+                SELECT MIN(id)
+                FROM enrollments
+                GROUP BY student_id, course_id
+            )
+        """)
+
+        # Remove duplicate attendance records already stored in the database.
+        cursor.execute("""
+            DELETE FROM attendance
+            WHERE id NOT IN (
+                SELECT MIN(id)
+                FROM attendance
+                GROUP BY student_id, course_id, date
+            )
+        """)
+
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_course_code
+            ON courses(UPPER(TRIM(course_code)))
+        """)
+
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_enrollment
+            ON enrollments(student_id, course_id)
+        """)
+
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_daily_attendance
+            ON attendance(student_id, course_id, date)
+        """)
+
+        ensure_default_user(
+            cursor=cursor,
+            name="Admin",
+            email="admin@rollin.com",
+            password="admin123",
+            role="admin",
         )
 
-        cursor.execute(
-            "DELETE FROM attendance WHERE course_id = ?",
-            (duplicate_course_id,),
-        )
-        cursor.execute(
-            "DELETE FROM enrollments WHERE course_id = ?",
-            (duplicate_course_id,),
-        )
-        cursor.execute(
-            "DELETE FROM courses WHERE id = ?",
-            (duplicate_course_id,),
+        ensure_default_user(
+            cursor=cursor,
+            name="Krish Adya",
+            email="krish@rollin.com",
+            password="krish473",
+            role="instructor",
         )
 
-    # Remove duplicate enrollments already stored in the database.
-    cursor.execute("""
-        DELETE FROM enrollments
-        WHERE id NOT IN (
-            SELECT MIN(id)
-            FROM enrollments
-            GROUP BY student_id, course_id
-        )
-    """)
-
-    # Remove duplicate attendance records already stored in the database.
-    cursor.execute("""
-        DELETE FROM attendance
-        WHERE id NOT IN (
-            SELECT MIN(id)
-            FROM attendance
-            GROUP BY student_id, course_id, date
-        )
-    """)
-
-    cursor.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_course_code
-        ON courses(UPPER(TRIM(course_code)))
-    """)
-
-    cursor.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_enrollment
-        ON enrollments(student_id, course_id)
-    """)
-
-    cursor.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_daily_attendance
-        ON attendance(student_id, course_id, date)
-    """)
-
-    ensure_default_user(
-    cursor=cursor,
-    name="Admin",
-    email="admin@rollin.com",
-    password="admin123",
-    role="admin",
-)
-
-    ensure_default_user(
-    cursor=cursor,
-    name="Krish Adya",
-    email="krish@rollin.com",
-    password="krish473",
-    role="instructor",
-)
-
-    connection.commit()
-    connection.close()
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def add_course(course_name, course_code, instructor_id):
@@ -859,6 +860,7 @@ def get_analytics_data(course_id=None):
 
     return rows
 
+
 def get_student_enrollments(student_db_id):
     connection = get_connection()
 
@@ -902,7 +904,7 @@ def unenroll_student(student_db_id, course_id):
 
         return cursor.rowcount > 0
 
-    except Exception:
+    except sqlite3.Error:
         connection.rollback()
         raise
 

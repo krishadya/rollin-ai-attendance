@@ -23,7 +23,13 @@ def show_history():
         tone="info",
     )
     section_heading("Course Filter", "Switch between a specific class and the full attendance log.")
-    selected_course = st.selectbox("Filter by Course", list(course_options.keys()))
+    selected_course = st.selectbox(
+        "Filter by Course",
+        options=["All Courses"] + [
+            course_name for course_name in course_options.keys() if course_name != "All Courses"
+        ],
+        key="history_course_filter",
+    )
 
     records = get_attendance_records(course_options[selected_course])
 

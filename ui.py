@@ -4,6 +4,58 @@ from datetime import datetime
 import streamlit as st
 
 
+def queue_widget_reset(*keys):
+    pending_keys = st.session_state.get("_widgets_to_reset", [])
+
+    for key in keys:
+        if key not in pending_keys:
+            pending_keys.append(key)
+
+    st.session_state["_widgets_to_reset"] = pending_keys
+
+
+def apply_widget_resets():
+    keys = st.session_state.pop("_widgets_to_reset", [])
+
+    for key in keys:
+        st.session_state.pop(key, None)
+
+
+def set_flash_success(message):
+    st.session_state["flash_success"] = message
+
+
+def set_flash_error(message):
+    st.session_state["flash_error"] = message
+
+
+def set_flash_info(message):
+    st.session_state["flash_info"] = message
+
+
+def set_flash_warning(message):
+    st.session_state["flash_warning"] = message
+
+
+def show_flash_messages():
+    success_message = st.session_state.pop("flash_success", None)
+    error_message = st.session_state.pop("flash_error", None)
+    info_message = st.session_state.pop("flash_info", None)
+    warning_message = st.session_state.pop("flash_warning", None)
+
+    if success_message:
+        st.success(success_message)
+
+    if error_message:
+        st.error(error_message)
+
+    if info_message:
+        st.info(info_message)
+
+    if warning_message:
+        st.warning(warning_message)
+
+
 def app_shell_card(title, body, tone="default"):
     st.markdown(
         f"""

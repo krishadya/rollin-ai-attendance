@@ -72,7 +72,7 @@ div {
     z-index: 999;
     width: 100%;
     margin: 0 !important;
-    padding: 8px clamp(18px, 3.4vw, 52px) !important;
+    padding: 12px clamp(18px, 3.4vw, 52px) !important;
     box-sizing: border-box;
     align-items: center !important;
     background: rgba(9, 11, 13, 0.96);
@@ -85,7 +85,7 @@ div {
 .brand-left {
     display: flex;
     align-items: center;
-    min-height: 90px;
+    min-height: 98px;
 }
 
 .brand-logo,
@@ -109,6 +109,46 @@ div {
     background: var(--gold);
     font-size: 1.8rem;
     font-weight: 900;
+}
+
+/* ===== Mobile hamburger toggle (hidden on desktop) ===== */
+
+.nav-toggle-checkbox {
+    display: none;
+}
+
+.nav-toggle-label {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 44px;
+    height: 44px;
+    margin-left: auto;
+    border-radius: 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.nav-toggle-label:hover {
+    border-color: var(--gold);
+}
+
+.nav-toggle-label span {
+    display: block;
+    height: 2px;
+    width: 22px;
+    background: var(--gold);
+    border-radius: 2px;
+    transition: transform 0.25s ease, opacity 0.2s ease;
+}
+
+.nav-toggle-overlay {
+    display: none;
 }
 
 [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stRadio"] {
@@ -186,7 +226,7 @@ div {
 }
 
 .page-spacer {
-    height: 112px;
+    height: 126px;
 }
 
 /* ===== Login ===== */
@@ -855,21 +895,151 @@ the animation.
 @media (max-width: 900px) {
     [data-testid="stHorizontalBlock"]:has(.brand-left) {
         position: sticky;
-        overflow-x: auto;
-        padding: 7px 12px !important;
+        padding: 10px 16px !important;
+        overflow: visible;
+        min-height: auto;
+    }
+
+    .brand-left {
+        min-height: auto;
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .brand-logo,
+    .brand-logo-fallback {
+        width: 64px;
+        height: 64px;
+    }
+
+    .nav-toggle-label {
+        display: flex;
+    }
+
+    /* The brand column becomes the only in-flow item in the bar (nav and
+       account become a fixed drawer below), so let it fill the row. */
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(1) {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+        min-width: 0 !important;
+    }
+
+    /* Nav links and account/logout become a slide-in side drawer instead
+       of a cramped, horizontally-scrolling strip. */
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(2),
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(3) {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(82vw, 320px);
+        height: 100vh;
+        z-index: 1001;
+        background: var(--surface);
+        border-left: 1px solid var(--border);
+        box-shadow: -18px 0 46px rgba(0, 0, 0, 0.45);
+        transform: translateX(100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        overflow-y: auto;
+        padding: 96px 20px 24px;
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(3) {
+        top: auto;
+        bottom: 0;
+        height: auto;
+        min-height: 132px;
+        padding: 20px;
+        border-top: 1px solid var(--border);
+        box-shadow: none;
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) [data-testid="stColumn"]:nth-of-type(2),
+    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) [data-testid="stColumn"]:nth-of-type(3) {
+        transform: translateX(0);
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) .nav-toggle-overlay {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.55);
+        cursor: pointer;
+    }
+
+    /* Hamburger morphs into an X while the drawer is open. */
+    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) .nav-toggle-label span:nth-child(1) {
+        transform: translateY(7px) rotate(45deg);
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) .nav-toggle-label span:nth-child(2) {
+        opacity: 0;
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) .nav-toggle-label span:nth-child(3) {
+        transform: translateY(-7px) rotate(-45deg);
     }
 
     [data-testid="stHorizontalBlock"]:has(.brand-left) [role="radiogroup"] {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        white-space: normal;
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stRadio"] label {
+        width: 100%;
+        min-height: 50px;
         justify-content: flex-start;
-        min-width: max-content;
+        padding: 12px 16px;
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stRadio"] label * {
+        font-size: 0.95rem;
+    }
+
+    .st-key-logout_button button {
+        width: 100%;
     }
 
     .page-spacer {
-        height: 76px;
+        height: 88px;
     }
 
     .block-container {
         padding-left: 1rem;
         padding-right: 1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .brand-logo,
+    .brand-logo-fallback {
+        width: 52px;
+        height: 52px;
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(2),
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(3) {
+        width: 88vw;
+    }
+
+    .hero-logo,
+    .hero-logo-fallback {
+        width: 168px;
+        height: 168px;
+    }
+
+    .login-shell {
+        max-width: 100%;
+    }
+
+    .metric-card {
+        min-height: 120px;
+        padding: 18px;
+    }
+
+    .page-header h1 {
+        font-size: 1.6rem;
     }
 }

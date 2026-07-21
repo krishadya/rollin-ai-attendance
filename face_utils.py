@@ -1,6 +1,8 @@
 from pathlib import Path
+
 import numpy as np
 from deepface import DeepFace
+
 
 FACES_DIR = Path("data/faces")
 EMBEDDINGS_DIR = Path("data/embeddings")
@@ -22,18 +24,19 @@ def save_face_embedding(student_identifier):
             model_name="Facenet",
             detector_backend="mtcnn",
             enforce_detection=True
-    )
+        )
 
         embedding = np.array(result[0]["embedding"])
         np.save(embedding_path, embedding)
 
         return str(embedding_path), None
 
-    except Exception as e:
-        return None, str(e)
-    
+    except Exception as error:
+        return None, str(error)
+
+
 def cosine_similarity(a, b):
-        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
 
 def generate_embedding_from_image(image_path):
@@ -48,8 +51,9 @@ def generate_embedding_from_image(image_path):
         embedding = np.array(result[0]["embedding"])
         return embedding, None
 
-    except Exception as e:
-        return None, str(e)
+    except Exception as error:
+        return None, str(error)
+
 
 def recognize_face(image_path, threshold=0.70):
     input_embedding, error = generate_embedding_from_image(image_path)
