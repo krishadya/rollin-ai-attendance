@@ -85,6 +85,7 @@ div {
 .brand-left {
     display: flex;
     align-items: center;
+    gap: 14px;
     min-height: 98px;
 }
 
@@ -99,6 +100,7 @@ div {
 .brand-logo {
     object-fit: contain;
     background: transparent;
+    filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.34));
 }
 
 .brand-logo-fallback {
@@ -223,6 +225,11 @@ div {
 
 .st-key-logout_button button:hover * {
     color: var(--gold) !important;
+}
+
+.nav-mobile-account,
+.st-key-logout_button_mobile {
+    display: none;
 }
 
 .page-spacer {
@@ -894,22 +901,33 @@ the animation.
 
 @media (max-width: 900px) {
     [data-testid="stHorizontalBlock"]:has(.brand-left) {
-        position: sticky;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100vw !important;
         padding: 10px 16px !important;
         overflow: visible;
         min-height: auto;
+        /* A transform on this element (even from the load-in animation)
+           would trap fixed-position children (the drawer/overlay) inside
+           its own small box instead of the full viewport. Disable it here. */
+        animation: none !important;
+        transform: none !important;
     }
 
     .brand-left {
         min-height: auto;
         width: 100%;
         justify-content: space-between;
+        position: relative;
+        z-index: 1002;
     }
 
     .brand-logo,
     .brand-logo-fallback {
-        width: 64px;
-        height: 64px;
+        width: 96px;
+        height: 96px;
     }
 
     .nav-toggle-label {
@@ -922,46 +940,58 @@ the animation.
         width: 100% !important;
         flex: 1 1 100% !important;
         min-width: 0 !important;
+        position: relative;
+        z-index: 1002;
     }
 
     /* Nav links and account/logout become a slide-in side drawer instead
-       of a cramped, horizontally-scrolling strip. */
-    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(2),
-    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(3) {
+       of a cramped, horizontally-scrolling strip. Starts below the navbar
+       bar (not at the very top) so the logo + hamburger stay visible and
+       clickable above it at all times, even while the drawer is open. */
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(2) {
         position: fixed;
-        top: 0;
+        top: 108px;
         right: 0;
         width: min(82vw, 320px);
-        height: 100vh;
+        height: calc(100vh - 108px);
         z-index: 1001;
         background: var(--surface);
         border-left: 1px solid var(--border);
         box-shadow: -18px 0 46px rgba(0, 0, 0, 0.45);
-        transform: translateX(100%);
-        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transform: translateX(calc(100% + 24px));
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition:
+            transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+            opacity 0.22s ease,
+            visibility 0s linear 0.3s;
         overflow-y: auto;
-        padding: 96px 20px 24px;
+        padding: 24px 20px;
     }
 
     [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(3) {
-        top: auto;
-        bottom: 0;
-        height: auto;
-        min-height: 132px;
-        padding: 20px;
-        border-top: 1px solid var(--border);
-        box-shadow: none;
+        display: none !important;
     }
 
-    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) [data-testid="stColumn"]:nth-of-type(2),
-    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) [data-testid="stColumn"]:nth-of-type(3) {
+    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) [data-testid="stColumn"]:nth-of-type(2) {
         transform: translateX(0);
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transition:
+            transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+            opacity 0.22s ease,
+            visibility 0s linear 0s;
     }
 
     [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) .nav-toggle-overlay {
         display: block;
         position: fixed;
-        inset: 0;
+        top: 108px;
+        left: 0;
+        right: 0;
+        bottom: 0;
         z-index: 1000;
         background: rgba(0, 0, 0, 0.55);
         cursor: pointer;
@@ -983,6 +1013,7 @@ the animation.
     [data-testid="stHorizontalBlock"]:has(.brand-left) [role="radiogroup"] {
         flex-direction: column;
         align-items: stretch;
+        justify-content: flex-start;
         gap: 8px;
         white-space: normal;
     }
@@ -998,30 +1029,60 @@ the animation.
         font-size: 0.95rem;
     }
 
-    .st-key-logout_button button {
+    .nav-mobile-account {
+        display: block;
+        margin: 18px 0 10px;
+        padding-top: 18px;
+        border-top: 1px solid var(--border);
+    }
+
+    .nav-mobile-account .nav-account-label,
+    .nav-mobile-account .nav-account-name {
+        text-align: left;
+    }
+
+    .st-key-logout_button_mobile {
+        display: block;
+    }
+
+    .st-key-logout_button_mobile button {
         width: 100%;
     }
 
+    .st-key-logout_button {
+        display: none;
+    }
+
     .page-spacer {
-        height: 88px;
+        height: 84px;
     }
 
     .block-container {
         padding-left: 1rem;
         padding-right: 1rem;
+        overflow-x: clip;
     }
 }
 
 @media (max-width: 480px) {
     .brand-logo,
     .brand-logo-fallback {
-        width: 52px;
-        height: 52px;
+        width: 84px;
+        height: 84px;
     }
 
-    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(2),
-    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(3) {
+    [data-testid="stHorizontalBlock"]:has(.brand-left) [data-testid="stColumn"]:nth-of-type(2) {
         width: 88vw;
+        top: 100px;
+        height: calc(100vh - 100px);
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.brand-left):has(#nav-toggle:checked) .nav-toggle-overlay {
+        top: 100px;
+    }
+
+    .page-spacer {
+        height: 78px;
     }
 
     .hero-logo,

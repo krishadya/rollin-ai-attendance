@@ -180,6 +180,17 @@ def render_topbar():
 
     current_page = st.session_state.page
     current_index = page_names.index(current_page)
+    user_name = (
+        st.session_state.get(
+            "user",
+            {},
+        ).get(
+            "name",
+            "User",
+        )
+        if st.session_state.get("user")
+        else "User"
+    )
 
     logo_data_uri = get_logo_data_uri()
 
@@ -223,20 +234,33 @@ def render_topbar():
             st.session_state.page = selected_page
             st.session_state.reset_scroll = True
 
-    with account_col:
-        user_name = (
-            st.session_state.get(
-                "user",
-                {},
-            ).get(
-                "name",
-                "User",
-            )
-            if st.session_state.get("user")
-            else "User"
+        st.markdown(
+            f"""
+            <div class="nav-mobile-account">
+                <p class="nav-account-label">Signed in as</p>
+                <p class="nav-account-name">{user_name}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-        st.caption(f"Signed in as {user_name}")
+        if st.button(
+            "Log out",
+            key="logout_button_mobile",
+            use_container_width=True,
+        ):
+            logout()
+
+    with account_col:
+        st.markdown(
+            f"""
+            <div class="nav-account">
+                <p class="nav-account-label">Signed in as</p>
+                <p class="nav-account-name">{user_name}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         if st.button(
             "Log out",
